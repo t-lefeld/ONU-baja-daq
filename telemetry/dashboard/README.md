@@ -2,55 +2,72 @@
 
 Real-time telemetry dashboard for pit use during competition and testing.
 
-**Backend:** Flask / FastAPI  
-**Frontend:** PyQtGraph (tabbed layout)  
-**Database:** SQLite (persistent cross-session logging)  
-**Input:** ESP32 receiver via WiFi or USB serial
+**Frontend:** Single-file browser dashboard (`baja_telemetry_dashboard.html`) — no install, no build step, 100% offline
+**Backend:** FastAPI + SQLite (`backend/`) — optional persistent, cross-session logging service
+**Input:** ESP32 receiver via USB serial (Web Serial API) or WiFi
+
+> Originally planned as a Flask/FastAPI + PyQtGraph desktop app (see
+> `docs/build-log/02_lora_telemetry.md`). Pivoted to a browser-based frontend —
+> see `docs/build-log/04_web_dashboard_pivot.md` for why.
 
 ## Running the Dashboard
 
+No install required:
+
 ```bash
-cd telemetry/dashboard
-pip install -r requirements.txt
-python app.py
+open telemetry/dashboard/baja_telemetry_dashboard.html   # or just double-click it
 ```
 
-Dashboard available at `http://localhost:5000`.  
-ESP32 must be on the same WiFi network or connected via USB serial.
+Open in **Chrome or Edge** (desktop) — Web Serial isn't supported in Firefox
+or Safari. Click **Connect LoRa** and pick the ESP32's USB serial port, or
+click **Demo Mode** to try it with simulated data first.
 
 ## Layout
 
-Tabbed PyQtGraph interface:
+Tabbed interface:
 
-| Tab | Signals |
-|-----|---------|
-| Suspension | Front travel, rear travel (live + history) |
-| eCVT | Primary RPM, secondary RPM, belt temp, actuator pos |
-| System | Packet rate, dropped packets, link RSSI, session time |
+| Tab | Contents |
+|-----|----------|
+| Overview | Cards for every channel, grouped by subsystem (engine/drivetrain, chassis/suspension, GPS) |
+| Charts | Live strip charts + GPS trail map |
+| Session | Lap timer, run log, CSV export |
+| Debug | Raw incoming packet feed |
+
+A pinned strip at the top always shows radial gauges for the most
+safety-critical channels (RPM, engine/CVT temp, battery voltage) regardless of
+which tab is open, along with any active alarms.
+
+## Adding a Sensor
+
+Everything needed to add a new channel lives in the `CONFIG` section at the
+top of the `<script>` block in the HTML file — see the comment block there
+for a step-by-step template. New channels get a card, gauge (optional),
+strip chart (optional), settings-panel row, and CSV export column
+automatically; no other editing required.
 
 ## Data Logging
 
-- SQLite database: `logs/session_YYYYMMDD_HHMMSS.db`
-- New session file created on each dashboard launch
-- All received packets written regardless of display state
-- Export to CSV: `python scripts/export_csv.py --session <file.db>`
+Two independent options, not mutually exclusive:
+
+- **Client-side (built into the dashboard):** every session's data lives in
+  browser memory and exports to CSV on demand ("Export CSV" / "New Run").
+  Works with zero setup, but data lives only in that browser tab.
+- **Server-side (`backend/`):** a FastAPI service with SQLite storage for
+  persistent, crash-safe, cross-session logging, independent of any one
+  browser tab. See `backend/README.md` for setup and the API. Not yet wired
+  to the dashboard automatically — currently a standalone service you POST
+  telemetry to; forwarding serial data into it is a planned integration.
 
 ## Architecture
 
 ```
-[ESP32 RX] ──serial/WiFi──► [receiver.py] ──► [SQLite]
-                                   │
-                             [Flask API]
-                                   │
-                           [PyQtGraph UI]
+[ESP32 RX] ──USB serial──► [Browser: Web Serial API] ──► [Dashboard UI]
+                                                      └──► [CSV export]
+
+[ESP32 RX] ──WiFi/serial──► [backend/ FastAPI service] ──► [SQLite]  (optional, parallel path)
 ```
 
 ## Requirements
 
-See `requirements.txt`. Key dependencies:
-
-- `flask` or `fastapi` + `uvicorn`
-- `pyqtgraph`
-- `pyserial`
-- `cantools`
-- `sqlite3` (stdlib)
+Dashboard: none — any modern Chrome/Edge.
+Backend: see `backend/requirements.txt` (FastAPI, uvicorn).

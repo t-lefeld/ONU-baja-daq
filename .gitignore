@@ -1,0 +1,22 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# Backend runtime data (mock SD card storage, SQLite session logs)
+telemetry/dashboard/backend/data/
+*.db
+
+# Logged telemetry CSV exports from the browser dashboard
+*.csv

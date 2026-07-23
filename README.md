@@ -102,7 +102,7 @@ baja-daq/
 │   └── firewall/        ← Nucleo L476RG, SD + LoRa + power dist
 ├── telemetry/
 │   ├── lora/            ← Radio config, packet format, freq hopping
-│   ├── dashboard/       ← Flask/FastAPI + PyQtGraph pit dashboard
+│   ├── dashboard/       ← Browser-based (Web Serial) pit dashboard + FastAPI/SQLite logging backend
 │   └── nextion/         ← Steering wheel display
 ├── can/
 │   ├── baja.dbc         ← DBC message definitions
@@ -135,12 +135,10 @@ python scripts/can_decode.py --dbc can/baja.dbc --log <logfile.asc>
 ### Running the pit dashboard
 
 ```bash
-cd telemetry/dashboard
-pip install -r requirements.txt
-python app.py
+open telemetry/dashboard/baja_telemetry_dashboard.html   # or just double-click it
 ```
 
-Dashboard served at `http://localhost:5000`. ESP32 receiver must be on the same network or connected via USB serial.
+Open in Chrome or Edge (desktop) and connect to the ESP32 receiver over USB serial, or click Demo Mode to try it with simulated data. No install, no build step — see `telemetry/dashboard/README.md` for details, including the optional FastAPI/SQLite persistent-logging backend.
 
 ---
 
@@ -154,7 +152,7 @@ Dashboard served at `http://localhost:5000`. ESP32 receiver must be on the same 
 | Rear node | 🔄 In progress | Sensor integration |
 | eCVT node | ⏸ Blocked | Pending mech specs from team |
 | LoRa telemetry | 🔄 In progress | Freq hopping, packet format |
-| Pit dashboard | 🔄 In progress | Flask/FastAPI + PyQtGraph |
+| Pit dashboard | 🔄 In progress | Browser dashboard (Web Serial) built; FastAPI/SQLite logger built; not yet wired together |
 | Nextion display | 📋 Planned | |
 | Suspension travel sensor | 🔄 In progress | Bellcrank CAD in progress |
 
