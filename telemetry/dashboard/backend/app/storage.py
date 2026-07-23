@@ -62,7 +62,7 @@ class SessionLogger:
     """Owns a single SQLite file for one session/run.
 
     Thread-safe for concurrent append() calls (e.g. multiple asyncio tasks
-    or threads reading from the ESP32 serial/WiFi link). Not process-safe --
+    or threads reading from the LoRa USB receiver serial link). Not process-safe --
     one process should own a given session file at a time, which matches
     a single pit-side backend process.
     """

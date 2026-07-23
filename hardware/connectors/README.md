@@ -27,6 +27,21 @@ All harness connectors use the Deutsch DT and DTM series throughout the vehicle 
 | 3 | Signal A |
 | 4 | Signal B (if needed) |
 
+## Per-Sensor Connector Assignments
+
+| Sensor | Node(s) | Connector | Keyway |
+|--------|---------|-----------|--------|
+| Wheel hub encoder (Littelfuse 55075) | Front, Rear | DTM04-3P | Key A |
+| Suspension bellcrank pot (Bourns 53AAA-B28-B15L) | Front, Rear | DTM04-3P | Key B |
+| Pressure transducer (Anfield T200/T201) | Front | DT04-3P or DT04-4P (match ordered variant) | — |
+| E-CVT belt temp (MLX90614, I2C — needs VDD/GND/SDA/SCL) | Rear | DTM04-4P | — |
+| CAN bus trunk | Front, Rear, Firewall | DT04-4P | — |
+
+Front and Rear each carry two DTM04-3P connectors (encoder + pot) that look
+identical — order them in different Deutsch keyways (Key A vs Key B) so they
+physically can't be cross-plugged, on top of labeling both ends of the
+harness cable and documenting the mapping in a wiring table.
+
 ## Crimping Notes
 
 - Use Deutsch crimping tool (DAM-1 or equivalent) — do not use generic crimpers

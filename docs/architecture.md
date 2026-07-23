@@ -26,7 +26,16 @@ ASC format (raw CAN frames with timestamps). Compatible with `cantools`, Vector 
 
 ## Dashboard
 
-Two-tier: a backend (Flask or FastAPI) that ingests serial/WiFi data from the ESP32 and writes to SQLite, and a PyQtGraph frontend that reads from the database. The database decouples the display update rate from the incoming packet rate and provides persistent logging across dashboard restarts.
+Single-file browser dashboard (Web Serial API) reads directly from the pit-side
+LoRa USB receiver (E22-900T22U) — no intermediate MCU, WiFi AP, or PyQtGraph
+process. This replaced an earlier Flask/FastAPI + PyQtGraph design; see
+`docs/build-log/04_web_dashboard_pivot.md` for why.
+
+An optional FastAPI + SQLite backend runs alongside it for persistent,
+crash-safe, cross-session logging: the dashboard forwards every parsed
+telemetry packet to it via `POST /telemetry` in addition to its own in-browser
+CSV logging. This decouples storage from any one browser tab without requiring
+the backend for basic operation — see `telemetry/dashboard/README.md`.
 
 ## Power
 

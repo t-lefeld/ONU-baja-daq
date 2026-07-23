@@ -1,24 +1,34 @@
 # Firewall Node
 
 **MCU:** STM32 Nucleo L476RG  
-**Role:** CAN bus aggregator, SD data logger, LoRa transmitter, power distribution hub  
+**Role:** CAN bus aggregator, SD data logger, LoRa transmitter, GPS + IMU acquisition, power distribution hub  
 **Language:** C++  
 
 ## Responsibilities
 
 - Receives all CAN messages from corner nodes
 - Logs raw CAN frames to SD card (continuous, independent of LoRa link)
-- Packetizes and transmits data over LoRa at 915MHz
+- Reads GPS position/speed and 9DOF IMU (orientation/acceleration)
+- Packetizes and transmits data (CAN + GPS + IMU) over LoRa at 915MHz
 - Distributes switched power to corner nodes
 - Hosts main vehicle harness connector interface
+- Provides an internal CAN analyzer tap for diagnostics (lid-accessible)
 
 ## Hardware
 
 - Nucleo L476RG on custom carrier PCB (see `/hardware/firewall-pcb/`)
-- LoRa radio module (SX1276 or equivalent) on SPI
+- LoRa TX module: E32-900T30D, UART
+- GPS: HGLRC Mini M100, UART
+- 9DOF IMU: BNO085, I2C (SCL/SDA on PB6/PB7, INT on PA0, RST on PA1)
 - SD card on SPI (separate CS from LoRa)
+- CAN analyzer tap: 3-pin JST-XH/PH pigtail spliced onto the CAN bus wiring
+  inside the enclosure — internal only, no environmental sealing needed since
+  it's only accessed with the lid open. Keep the stub short; do not add a
+  120Ω termination here unless this box is genuinely a bus end
 - Deutsch DT connectors for CAN bus in/out and power out
 - PAHT-CF enclosure, IP66 rated (see `/hardware/enclosures/`)
+- Dual battery input with LTC4412 ideal-diode OR-ing (P-MOSFETs, TVS + fuse
+  per input) feeding a buck converter for the regulated rail
 
 ## LoRa Packet Format
 

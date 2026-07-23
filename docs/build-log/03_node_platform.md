@@ -3,6 +3,11 @@
 **Date:** 2026-06  
 **Type:** Component selection
 
+> **Superseded in part:** the eCVT node described below as a fourth STM32
+> Blue Pill corner node was replaced by a commercial ODrive S1 assembly once
+> mechanical specs came in — see `05_receiver_and_scope_corrections.md`.
+> Front/Rear/Firewall platform selection below is still current.
+
 ## Overview
 
 Selected MCU platforms for corner nodes and the firewall aggregator node.

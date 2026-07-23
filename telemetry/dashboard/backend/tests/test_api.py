@@ -82,7 +82,7 @@ def test_rotation_via_api_does_not_clobber_previous_session(client):
 
 def test_burst_of_concurrent_writes_no_dropped_packets(client):
     """Mimics a burst of high-frequency telemetry with multiple concurrent
-    writers (simulating async tasks / threads feeding off the ESP32 link)
+    writers (simulating async tasks / threads feeding off the LoRa receiver link)
     hitting the same active session."""
     client.post("/sessions/start", json={"name": "burst"})
 

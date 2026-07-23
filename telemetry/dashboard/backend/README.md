@@ -1,7 +1,8 @@
 # Baja Pit Telemetry Logger
 
-Pit-side FastAPI backend that logs telemetry forwarded from the ESP32
-(receiving CAN bus data over LoRa from the STM32 on the car) to disk, with
+Pit-side FastAPI backend that logs telemetry forwarded from the browser
+dashboard (which itself receives CAN bus data over LoRa via a USB LoRa
+receiver, E22-900T22U) to disk, with
 storage treated as a swappable filesystem path rather than specific hardware.
 Validated end-to-end (write, rotate, flush, read-back) against a plain
 folder standing in for the SD card — no physical card needed for this pass.
@@ -40,7 +41,7 @@ The exact CAN signal layout wasn't specified, so incoming packets are:
 
 ```json
 {
-  "device_ts": 1721500000.123,   // optional, timestamp from ESP32/STM32
+  "device_ts": 1721500000.123,   // optional, timestamp from receiver/STM32
   "can_id": "0x100",             // optional, CAN arbitration id
   "seq": 42,                     // optional, packet sequence number
   "rssi": -71.0,                 // optional, LoRa signal strength
@@ -49,7 +50,7 @@ The exact CAN signal layout wasn't specified, so incoming packets are:
 ```
 
 `payload` is an open dict so any set of decoded signals can be logged
-without a schema migration. Adjust once the real STM32/ESP32 packet format
+without a schema migration. Adjust once the real STM32/LoRa packet format
 and the dashboard's expected fields are finalized.
 
 ## API

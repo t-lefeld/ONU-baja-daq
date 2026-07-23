@@ -3,6 +3,13 @@
 **Date:** 2026-06  
 **Type:** Design decision
 
+> **Superseded in part:** the ESP32 receiver and PyQtGraph/Flask frontend
+> described below were replaced — see `04_web_dashboard_pivot.md` (frontend)
+> and `05_receiver_and_scope_corrections.md` (receiver hardware, now an
+> E22-900T22U USB LoRa dongle). Radio config (915MHz, 5-channel hopping,
+> packet format) is still current. Left as-written below for historical
+> record.
+
 ## Overview
 
 Defined the full telemetry stack from vehicle to pit: LoRa radio link, ESP32 receiver, WiFi dashboard, and SQLite logging.

@@ -16,9 +16,9 @@ browser dashboard using the Web Serial API instead.
   at competition. The browser dashboard is one HTML file — open it in Chrome
   and it works, including on a laptop that's never seen this repo before.
 - **No backend required for live viewing.** The Web Serial API lets the
-  browser talk to the ESP32's USB serial output directly, so there's no Flask
-  process to start, no port to remember, nothing to crash independently of
-  the UI.
+  browser talk to the pit-side LoRa USB receiver's (E22-900T22U) serial
+  output directly, so there's no Flask process to start, no port to
+  remember, nothing to crash independently of the UI.
 - **Fully offline.** No CDN dependencies, no network calls of any kind —
   matters at competitions where venue WiFi/cell service is unreliable or
   banned in the pit area.
@@ -41,9 +41,12 @@ browser dashboard using the Web Serial API instead.
 
 Dashboard is built and includes gauges, alarms, a stale-data/link-health
 indicator, CSV export, and a lap timer. The FastAPI/SQLite backend is built
-and tested independently. Wiring the two together (forwarding serial data
-into the backend for persistent server-side logging) is not yet done — see
-`telemetry/dashboard/README.md`.
+and tested independently, and the two are now wired together: the dashboard
+forwards every parsed telemetry packet to the backend over `POST /telemetry`
+in addition to its own in-browser CSV logging, with the backend fully
+optional (dashboard works standalone if it's unreachable or disabled). See
+`telemetry/dashboard/README.md` and
+`docs/build-log/05_receiver_and_scope_corrections.md`.
 
 ## Key Takeaways
 

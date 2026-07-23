@@ -4,7 +4,7 @@ Real-time telemetry dashboard for pit use during competition and testing.
 
 **Frontend:** Single-file browser dashboard (`baja_telemetry_dashboard.html`) — no install, no build step, 100% offline
 **Backend:** FastAPI + SQLite (`backend/`) — optional persistent, cross-session logging service
-**Input:** ESP32 receiver via USB serial (Web Serial API) or WiFi
+**Input:** LoRa USB receiver (E22-900T22U) via USB serial (Web Serial API)
 
 > Originally planned as a Flask/FastAPI + PyQtGraph desktop app (see
 > `docs/build-log/02_lora_telemetry.md`). Pivoted to a browser-based frontend —
@@ -19,8 +19,8 @@ open telemetry/dashboard/baja_telemetry_dashboard.html   # or just double-click 
 ```
 
 Open in **Chrome or Edge** (desktop) — Web Serial isn't supported in Firefox
-or Safari. Click **Connect LoRa** and pick the ESP32's USB serial port, or
-click **Demo Mode** to try it with simulated data first.
+or Safari. Click **Connect LoRa** and pick the LoRa USB receiver's (E22-900T22U)
+serial port, or click **Demo Mode** to try it with simulated data first.
 
 ## Layout
 
@@ -70,7 +70,7 @@ Two independent options, not mutually exclusive:
 ## Architecture
 
 ```
-[ESP32 RX] ──USB serial──► [Browser: Web Serial API] ──► [Dashboard UI]
+[E22-900T22U RX] ──USB serial──► [Browser: Web Serial API] ──► [Dashboard UI]
                                                       ├──► [CSV export]
                                                       └──► [backend/ FastAPI] ──► [SQLite]
                                                            (optional, if Server Logging is enabled)

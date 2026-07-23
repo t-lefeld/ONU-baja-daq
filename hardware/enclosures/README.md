@@ -35,5 +35,11 @@ Print files located in this folder. Each enclosure folder contains:
 |------|-----------|----------|
 | Front | `front-node/` | Suspension upright bracket |
 | Rear | `rear-node/` | Rear frame tab |
-| eCVT | `ecvt-node/` | TBD pending mech specs |
+| eCVT | none planned | ODrive S1 assembly uses its own onboard connectors/housing — no custom PAHT-CF box currently planned (see `nodes/ecvt/README.md`) |
 | Firewall | `firewall-node/` | Firewall panel mount |
+
+All three printed enclosures (Front, Rear, Firewall) use a 1.7mm × 0.9mm TPU
+gasket bead compressed ~25% (0.45mm rib depth on the lid, 0.85mm locating
+channel in the base), closed with a fully-printed PAHT-CF over-center toggle
+latch (flex-free — cantilever snap-fits aren't used since CF-filled nylon
+has low elongation-at-break and cracks under repeated flex).

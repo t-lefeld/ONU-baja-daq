@@ -1,6 +1,6 @@
 # Baja SAE — DAQ System
 
-Data acquisition, CAN bus, and LoRa telemetry system for a university Baja SAE vehicle. Covers all sensor nodes, the firewall aggregator, real-time pit telemetry, and driver-facing display.
+Data acquisition, CAN bus, and LoRa telemetry system for a university Baja SAE vehicle. Covers all sensor nodes, the firewall aggregator, and real-time pit telemetry.
 
 ![Status](https://img.shields.io/badge/status-in%20progress-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -14,40 +14,41 @@ Data acquisition, CAN bus, and LoRa telemetry system for a university Baja SAE v
 ```
  VEHICLE
  ┌─────────────────────────────────────────────────────┐
- │                                                     │
- │  [Front Node]   [Rear Node]   [eCVT Node]           │
- │  STM32 Blue Pill            STM32 Blue Pill         │
- │       │               │            │                │
- │       └───────────────┴────────────┘                │
- │                  CAN Bus (500kbps)                  │
- │                  Deutsch DT over                    │
- │                  Ethernet twisted pair              │
- │                       │                             │
- │              [Firewall Node]                        │
- │              Nucleo L476RG                          │
- │              SD logging + LoRa TX                   │
- │              Power distribution                     │
- └───────────────────────┬─────────────────────────────┘
+ │                                                      │
+ │  [Front Node]        [Rear Node]                     │
+ │  STM32 Blue Pill     STM32 Blue Pill                 │
+ │  Wheel encoder,      Wheel encoder,                  │
+ │  bellcrank pot,      bellcrank pot,                  │
+ │  pressure xducers    E-CVT belt temp (MLX90614)      │
+ │       │                    │                         │
+ │       └────────────────────┘                         │
+ │                  CAN Bus (500kbps)                   │
+ │                  Deutsch DT over                     │
+ │                  Ethernet twisted pair                │
+ │                       │                              │
+ │              [Firewall Node]                         │
+ │              Nucleo L476RG                           │
+ │              LoRa TX (E32-900T30D), GPS, 9DOF IMU,   │
+ │              SD logging, CAN analyzer tap,           │
+ │              power distribution                      │
+ └───────────────────────┬──────────────────────────────┘
                          │ LoRa 915MHz
                          │ 5-channel frequency hopping
                          ▼
  PIT
- ┌─────────────────────────────────────────┐
- │  [ESP32 Receiver]                       │
- │  WiFi AP + USB serial                   │
- │       │              │                  │
- │  [Dashboard]    [SQLite Log]            │
- │  Flask/FastAPI                          │
- │  PyQtGraph UI                           │
- └─────────────────────────────────────────┘
-
- DRIVER
- ┌─────────────────────────────┐
- │  [Nextion Display]          │
- │  Steering wheel panel       │
- │  Driver-facing live data    │
- └─────────────────────────────┘
+ ┌──────────────────────────────────────────────────────┐
+ │  [LoRa USB Receiver]                                  │
+ │  E22-900T22U (USB, no MCU)                            │
+ │       │                                               │
+ │  [Browser Dashboard] ──optional──► [FastAPI/SQLite]   │
+ │  Web Serial API          POST /telemetry              │
+ └──────────────────────────────────────────────────────┘
 ```
+
+**E-CVT actuation** (`nodes/ecvt/`) is a separate self-contained assembly, not a CAN
+sensor node: an ODrive S1 controller drives the CVT actuator motor (ODrive D5065,
+built-in thermistor) using its own onboard encoder (ODrive Encoder OA1) and a
+2Ω/50W brake resistor for regen dumping. See `nodes/ecvt/README.md`.
 
 ---
 
@@ -57,10 +58,10 @@ Data acquisition, CAN bus, and LoRa telemetry system for a university Baja SAE v
 
 | Node | MCU | Location | Key Sensors |
 |------|-----|----------|-------------|
-| Front | STM32 Blue Pill | Front suspension | Suspension travel, steering angle |
-| Rear | STM32 Blue Pill | Rear suspension | Suspension travel, drivetrain |
-| eCVT | STM32 Blue Pill | CVT | RPM, belt temp, actuator position |
-| Firewall | Nucleo L476RG | Firewall | CAN aggregator, SD log, LoRa TX, power dist |
+| Front | STM32 Blue Pill | Front suspension | Wheel hub encoder (Littelfuse 55075), bellcrank pot (Bourns 53AAA-B28-B15L), pressure transducers (Anfield T200/T201) |
+| Rear | STM32 Blue Pill | Rear suspension | Wheel hub encoder (Littelfuse 55075), bellcrank pot (Bourns 53AAA-B28-B15L), E-CVT belt temp (MLX90614, I2C) |
+| eCVT | ODrive S1 (onboard controller) | CVT assembly | Not a CAN sensor node — self-contained ODrive S1 + D5065 motor (built-in thermistor) + Encoder OA1 + 2Ω/50W brake resistor |
+| Firewall | Nucleo L476RG | Firewall | CAN aggregator, SD log, LoRa TX (E32-900T30D), GPS (HGLRC Mini M100), 9DOF IMU (BNO085), CAN analyzer tap, power dist |
 
 ### CAN Bus (`/can/`)
 
@@ -72,8 +73,10 @@ Data acquisition, CAN bus, and LoRa telemetry system for a university Baja SAE v
 
 - LoRa 915MHz, 5-channel frequency hopping for interference resilience
 - Packet format: header + checksum + sequence number
-- ESP32 receiver serves WiFi dashboard and USB serial to laptop
-- SQLite for persistent cross-session logging
+- Pit receiver is a LoRa USB dongle (E22-900T22U) — no onboard MCU, appears
+  directly as a USB serial port
+- Browser-based dashboard (Web Serial API) reads it directly; optional
+  FastAPI/SQLite backend for persistent cross-session logging
 
 ### Suspension Travel (`/suspension/`)
 
@@ -98,12 +101,11 @@ baja-daq/
 ├── nodes/
 │   ├── front/           ← STM32 Blue Pill, front corner firmware
 │   ├── rear/            ← STM32 Blue Pill, rear corner firmware
-│   ├── ecvt/            ← eCVT node (blocked pending mech specs)
-│   └── firewall/        ← Nucleo L476RG, SD + LoRa + power dist
+│   ├── ecvt/            ← ODrive S1-based E-CVT actuation (not a CAN sensor node)
+│   └── firewall/        ← Nucleo L476RG, SD + LoRa + GPS + IMU + power dist
 ├── telemetry/
 │   ├── lora/            ← Radio config, packet format, freq hopping
-│   ├── dashboard/       ← Browser-based (Web Serial) pit dashboard + FastAPI/SQLite logging backend
-│   └── nextion/         ← Steering wheel display
+│   └── dashboard/       ← Browser-based (Web Serial) pit dashboard + FastAPI/SQLite logging backend
 ├── can/
 │   ├── baja.dbc         ← DBC message definitions
 │   └── README.md        ← Bus topology, node IDs, signal list
@@ -138,7 +140,7 @@ python scripts/can_decode.py --dbc can/baja.dbc --log <logfile.asc>
 open telemetry/dashboard/baja_telemetry_dashboard.html   # or just double-click it
 ```
 
-Open in Chrome or Edge (desktop) and connect to the ESP32 receiver over USB serial, or click Demo Mode to try it with simulated data. No install, no build step — see `telemetry/dashboard/README.md` for details, including the optional FastAPI/SQLite persistent-logging backend.
+Open in Chrome or Edge (desktop) and connect to the LoRa USB receiver (E22-900T22U) over USB serial, or click Demo Mode to try it with simulated data. No install, no build step — see `telemetry/dashboard/README.md` for details, including the optional FastAPI/SQLite persistent-logging backend.
 
 ---
 
@@ -147,13 +149,12 @@ Open in Chrome or Edge (desktop) and connect to the ESP32 receiver over USB seri
 | Subsystem | Status | Notes |
 |-----------|--------|-------|
 | CAN bus architecture | ✅ Complete | 500kbps, DBC defined |
-| Firewall node | 🔄 In progress | SD logging, LoRa TX |
+| Firewall node | 🔄 In progress | SD logging, LoRa TX, GPS, IMU |
 | Front node | 🔄 In progress | Sensor integration |
 | Rear node | 🔄 In progress | Sensor integration |
-| eCVT node | ⏸ Blocked | Pending mech specs from team |
+| eCVT actuation | 🔄 In progress | ODrive S1 assembly, mech specs confirmed |
 | LoRa telemetry | 🔄 In progress | Freq hopping, packet format |
-| Pit dashboard | 🔄 In progress | Browser dashboard (Web Serial) built; FastAPI/SQLite logger built; not yet wired together |
-| Nextion display | 📋 Planned | |
+| Pit dashboard | ✅ Wired | Browser dashboard (Web Serial) forwards to FastAPI/SQLite logger |
 | Suspension travel sensor | 🔄 In progress | Bellcrank CAD in progress |
 
 ---

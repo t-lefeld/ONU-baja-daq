@@ -13,8 +13,12 @@
 |------|--------------|----------|
 | Front | 0x010 | Front suspension corner |
 | Rear | 0x020 | Rear suspension corner |
-| eCVT | 0x030 | CVT assembly |
+| eCVT | 0x030 (reserved, unconfirmed) | CVT assembly |
 | Firewall | 0x000 | Firewall (aggregator, no sensors) |
+
+eCVT is now an ODrive S1 assembly rather than a custom sensor node (see
+`nodes/ecvt/README.md`) — whether it uses this reserved ID or the ODrive's
+own native CAN protocol is still to be confirmed with the team.
 
 ## DBC File
 

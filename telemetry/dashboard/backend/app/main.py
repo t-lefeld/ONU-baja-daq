@@ -1,11 +1,13 @@
 """
 Pit-side telemetry logging backend.
 
-Receives telemetry packets forwarded from the ESP32 (which itself receives
-CAN bus data over LoRa from the STM32 on the car) over WiFi/serial, and
-appends them to a per-session SQLite log file. Storage location is fully
-configurable (see app/config.py) so this can be validated against a plain
-folder now and pointed at a real SD card mount later with zero code changes.
+Receives telemetry packets over HTTP (POST /telemetry) forwarded by the
+browser dashboard, which itself reads them over USB serial from a LoRa
+USB receiver (E22-900T22U) that receives CAN bus data over LoRa from the
+firewall node's STM32 on the car. Appends them to a per-session SQLite log
+file. Storage location is fully configurable (see app/config.py) so this
+can be validated against a plain folder now and pointed at a real SD card
+mount later with zero code changes.
 """
 from __future__ import annotations
 
@@ -33,7 +35,7 @@ class TelemetryPacket(BaseModel):
     """
 
     device_ts: Optional[float] = Field(
-        default=None, description="Timestamp attached upstream (ESP32/STM32), if provided"
+        default=None, description="Timestamp attached upstream (receiver/STM32), if provided"
     )
     can_id: Optional[str] = Field(default=None, description="CAN arbitration id, e.g. hex string")
     seq: Optional[int] = Field(default=None, description="Packet sequence number, if provided")

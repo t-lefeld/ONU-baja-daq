@@ -1,20 +1,29 @@
 # LoRa Telemetry
 
 **Frequency:** 915MHz ISM band  
-**Module:** SX1276 (or equivalent)  
-**TX:** Firewall node (vehicle)  
-**RX:** ESP32 (pit)
+**TX module:** E32-900T30D (Firewall node, vehicle)  
+**RX module:** E22-900T22U (pit) — USB-interface LoRa dongle, no onboard MCU
 
 ## Link Architecture
 
 ```
-[Firewall Node] ──LoRa 915MHz──► [ESP32 Receiver]
+[Firewall Node] ──LoRa 915MHz──► [E22-900T22U USB Receiver]
                                        │
-                              ┌────────┴────────┐
-                              ▼                 ▼
-                        [WiFi AP]          [USB Serial]
-                        Dashboard          Laptop logging
+                                       ▼
+                              [Browser Dashboard]
+                              Web Serial API
+                                       │
+                                  optional
+                                       ▼
+                          [FastAPI/SQLite backend]
+                          POST /telemetry, persistent log
 ```
+
+The receiver plugs directly into the pit laptop's USB port and enumerates as a
+serial device — there's no WiFi AP or intermediate microcontroller in this
+path. See `docs/build-log/04_web_dashboard_pivot.md` and
+`docs/build-log/05_receiver_and_scope_corrections.md` for how this replaced
+the earlier ESP32/WiFi/PyQtGraph design.
 
 ## Frequency Hopping
 
