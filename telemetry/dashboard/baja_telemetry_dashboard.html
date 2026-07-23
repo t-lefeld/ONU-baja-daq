@@ -201,6 +201,17 @@
           <select id="pastRunsSelect" style="flex:1;"><option value="current">Current run</option></select>
           <button id="exportPastBtn">Export Selected</button>
         </div>
+
+        <h2 style="margin-top:20px;">Server Logging <span class="pill" id="backendStatusPill" style="font-weight:400; text-transform:none; letter-spacing:0;">Off</span></h2>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+          Optional — forwards every packet to the FastAPI/SQLite backend (<code>telemetry/dashboard/backend/</code>)
+          for persistent, crash-safe logging independent of this browser tab. The dashboard works fully without it.
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input type="text" id="backendUrlInput" placeholder="http://localhost:8000" style="flex:1; min-width:160px;">
+          <button id="backendToggleBtn">Enable</button>
+        </div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;" id="backendDetail"></div>
       </div>
     </div>
   </div>
@@ -323,6 +334,14 @@ const STRIP_CHARTS = [
   { title:'Lateral / Longitudinal G', keys:['gForceLat','gForceLon'] },
 ];
 
+// Optional persistent server-side logging (telemetry/dashboard/backend/ — a
+// FastAPI + SQLite service). Entirely optional: the dashboard works fully
+// standalone without it, this just also forwards each packet there if a URL
+// is configured and reachable, for crash-safe cross-session storage
+// independent of this browser tab. See backend/README.md.
+let BACKEND_URL = '';
+let backendEnabled = false;
+
 let MAX_HISTORY_POINTS = 900;
 let CHART_WINDOW_MS = 60000;
 const LOG_THROTTLE_MS = 150;
@@ -360,12 +379,17 @@ function loadSettings(){
     }
     if(saved.unitSystem) unitSystem = saved.unitSystem;
     if(saved.theme) document.body.dataset.theme = saved.theme;
+    if(saved.backendUrl) BACKEND_URL = saved.backendUrl;
+    if(saved.backendEnabled) backendEnabled = true;
   }catch(e){ console.warn('settings load failed', e); }
 }
 function saveSettings(){
   const thresholds = {};
   CHANNELS.forEach(c => { thresholds[c.key] = { warnLow:c.warnLow, dangerLow:c.dangerLow, warnHigh:c.warnHigh, dangerHigh:c.dangerHigh }; });
-  localStorage.setItem('bajaTelemetrySettings', JSON.stringify({ thresholds, unitSystem, theme: document.body.dataset.theme || 'dark' }));
+  localStorage.setItem('bajaTelemetrySettings', JSON.stringify({
+    thresholds, unitSystem, theme: document.body.dataset.theme || 'dark',
+    backendUrl: BACKEND_URL, backendEnabled,
+  }));
 }
 
 let unitSystem = 'imperial';
@@ -378,6 +402,7 @@ const state = {
   gpsTrail:[], logRows:[], lastLogTime:0, lapTimes:[], lapStart:0,
   lastPacketTime:0, packetTimestamps:[], alarmSince:{}, lastAlarmBeep:0,
   pastRuns:[], sessionStart:0, muted:false, rejectedCount:0,
+  backendStatus:'off', backendSessionId:null, backendLastError:'',
 };
 function resetHistory(){
   CHANNELS.forEach(c => { state.history[c.key] = []; state.minmax[c.key] = {min:Infinity, max:-Infinity}; });
@@ -516,13 +541,16 @@ function parseLine(line){
   state.packetTimestamps.push(t);
   while(state.packetTimestamps.length && t - state.packetTimestamps[0] > 1000) state.packetTimestamps.shift();
 
+  const clean = {};
   for(const key in data){
     const v = parseFloat(data[key]);
     if(isNaN(v)) continue;
     if(!isSane(key, v)){ state.rejectedCount++; continue; }
     ingestValue(key, v, t);
+    clean[key] = v;
   }
   maybeLogRow(t);
+  backendPostTelemetry(clean);
 }
 
 function isSane(key, v){
@@ -877,7 +905,11 @@ function refreshPastRunsSelect(){
     state.pastRuns.map((r,i) => `<option value="${i}">${r.label} (${r.rows.length} rows)</option>`).join('');
 }
 
-document.getElementById('newRunBtn').addEventListener('click', () => {
+document.getElementById('newRunBtn').addEventListener('click', async () => {
+  if(backendEnabled){
+    await backendStopSession();
+    await backendStartSession('run_' + new Date().toISOString().replace(/[:.]/g,'-'));
+  }
   if(state.logRows.length){
     state.pastRuns.push({ label: new Date(state.sessionStart || Date.now()).toLocaleString(), rows: state.logRows.slice() });
     if(state.pastRuns.length > 20) state.pastRuns.shift();
@@ -915,6 +947,87 @@ document.getElementById('exportPastBtn').addEventListener('click', () => {
   const sel = document.getElementById('pastRunsSelect').value;
   if(sel === 'current') exportRows(state.logRows, 'current_' + new Date().toISOString().replace(/[:.]/g,'-'));
   else exportRows(state.pastRuns[Number(sel)].rows, 'run' + sel);
+});
+
+/* ======================================================================
+   OPTIONAL SERVER-SIDE LOGGING (telemetry/dashboard/backend/)
+   Entirely optional and non-blocking: every call here is fire-and-forget
+   and failures just flip the status pill to "Offline" — a dead or missing
+   backend can never break the live dashboard.
+   ====================================================================== */
+function setBackendStatus(status, detail){
+  state.backendStatus = status;
+  const pill = document.getElementById('backendStatusPill');
+  const map = { off:'Off', connecting:'Connecting…', on:'Logging', offline:'Offline (retrying)', error:'Error' };
+  pill.textContent = map[status] || status;
+  pill.style.color = status === 'on' ? 'var(--good)' : (status === 'offline' || status === 'error') ? 'var(--warn)' : '';
+  document.getElementById('backendDetail').textContent = detail || '';
+}
+
+async function backendFetch(path, opts){
+  const url = BACKEND_URL.replace(/\/$/, '') + path;
+  const res = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts && opts.headers) } });
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function backendStartSession(name){
+  try{
+    const data = await backendFetch('/sessions/start', { method:'POST', body: JSON.stringify({ name: name || null }) });
+    state.backendSessionId = data.session_id;
+    setBackendStatus('on', `Session ${data.session_id} → ${data.filename}`);
+    return true;
+  }catch(err){
+    state.backendSessionId = null;
+    setBackendStatus('offline', String(err.message || err));
+    return false;
+  }
+}
+
+async function backendStopSession(){
+  if(!state.backendSessionId) return;
+  try{ await backendFetch('/sessions/stop', { method:'POST', body: JSON.stringify({}) }); }
+  catch(err){ /* best-effort — nothing to do locally if this fails */ }
+  state.backendSessionId = null;
+}
+
+function backendPostTelemetry(payload){
+  if(!backendEnabled || !state.backendSessionId) return;
+  // Fire-and-forget: never await this from the hot parseLine() path.
+  backendFetch('/telemetry', { method:'POST', body: JSON.stringify({ payload }) })
+    .then(() => { if(state.backendStatus !== 'on') setBackendStatus('on', `Session ${state.backendSessionId}`); })
+    .catch(err => setBackendStatus('offline', String(err.message || err)));
+}
+
+async function enableBackend(){
+  BACKEND_URL = document.getElementById('backendUrlInput').value.trim();
+  if(!BACKEND_URL){ alert('Enter the backend URL first, e.g. http://localhost:8000'); return; }
+  setBackendStatus('connecting', BACKEND_URL);
+  try{
+    await backendFetch('/health', { method:'GET' });
+  }catch(err){
+    setBackendStatus('offline', 'Could not reach ' + BACKEND_URL + ' — ' + String(err.message || err));
+    backendEnabled = true; // stay "enabled" so it auto-recovers once reachable
+    document.getElementById('backendToggleBtn').textContent = 'Disable';
+    saveSettings();
+    return;
+  }
+  backendEnabled = true;
+  document.getElementById('backendToggleBtn').textContent = 'Disable';
+  await backendStartSession('run_' + new Date().toISOString().replace(/[:.]/g,'-'));
+  saveSettings();
+}
+
+async function disableBackend(){
+  await backendStopSession();
+  backendEnabled = false;
+  document.getElementById('backendToggleBtn').textContent = 'Enable';
+  setBackendStatus('off', '');
+  saveSettings();
+}
+
+document.getElementById('backendToggleBtn').addEventListener('click', () => {
+  backendEnabled ? disableBackend() : enableBackend();
 });
 
 /* ======================================================================
@@ -1115,6 +1228,26 @@ refreshPastRunsSelect();
 state.sessionStart = Date.now();
 showTab('overview');
 offerPreviousPort();
+
+// Restore server-logging config and silently try to reconnect if it was on
+// last time — non-blocking, falls back to "Offline" if unreachable.
+document.getElementById('backendUrlInput').value = BACKEND_URL;
+if(backendEnabled && BACKEND_URL){
+  document.getElementById('backendToggleBtn').textContent = 'Disable';
+  setBackendStatus('connecting', BACKEND_URL);
+  backendEnabled = false; // enableBackend() re-sets this once it (re)establishes a session
+  enableBackend();
+} else {
+  setBackendStatus('off', '');
+}
+
+// Best-effort: tell the backend to close out its session file on tab close.
+// sendBeacon fires even during unload, unlike a normal fetch.
+window.addEventListener('beforeunload', () => {
+  if(backendEnabled && state.backendSessionId && BACKEND_URL && navigator.sendBeacon){
+    navigator.sendBeacon(BACKEND_URL.replace(/\/$/,'') + '/sessions/stop', new Blob([JSON.stringify({})], {type:'application/json'}));
+  }
+});
 
 // Guard against losing an in-progress run to an accidental tab close/refresh.
 window.addEventListener('beforeunload', (e) => {

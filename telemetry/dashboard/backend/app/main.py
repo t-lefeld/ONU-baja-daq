@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
@@ -77,6 +78,16 @@ def create_app(storage_path: Optional[str] = None, flush_interval_seconds: Optio
             manager.shutdown()
 
     app = FastAPI(title="Baja Pit Telemetry Logger", lifespan=lifespan)
+    # The dashboard is a local HTML file (file:// origin) or served from an
+    # arbitrary pit laptop, so there's no fixed origin to allow-list. This
+    # service is meant to run on localhost/pit LAN only, never exposed to
+    # the internet, so permissive CORS is an acceptable trade-off here.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.settings = settings
     app.state.manager = manager
 

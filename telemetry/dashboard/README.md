@@ -54,17 +54,26 @@ Two independent options, not mutually exclusive:
   Works with zero setup, but data lives only in that browser tab.
 - **Server-side (`backend/`):** a FastAPI service with SQLite storage for
   persistent, crash-safe, cross-session logging, independent of any one
-  browser tab. See `backend/README.md` for setup and the API. Not yet wired
-  to the dashboard automatically — currently a standalone service you POST
-  telemetry to; forwarding serial data into it is a planned integration.
+  browser tab. See `backend/README.md` for setup and the API.
+
+  **Wired into the dashboard:** open the Session tab, enter the backend URL
+  (e.g. `http://localhost:8000`) under "Server Logging," and click Connect.
+  The dashboard health-checks the URL, starts a backend session, and from
+  then on forwards every parsed telemetry packet to it via `POST /telemetry`
+  in addition to the local in-browser log — no server restart or dashboard
+  reload needed. A status pill shows Connecting / Logging / Offline
+  (auto-retrying), and clicking "New Run" starts a fresh backend session to
+  match the local one. This is optional and additive: if the backend is
+  unreachable or disabled, the dashboard works exactly as before, purely
+  client-side.
 
 ## Architecture
 
 ```
 [ESP32 RX] ──USB serial──► [Browser: Web Serial API] ──► [Dashboard UI]
-                                                      └──► [CSV export]
-
-[ESP32 RX] ──WiFi/serial──► [backend/ FastAPI service] ──► [SQLite]  (optional, parallel path)
+                                                      ├──► [CSV export]
+                                                      └──► [backend/ FastAPI] ──► [SQLite]
+                                                           (optional, if Server Logging is enabled)
 ```
 
 ## Requirements
