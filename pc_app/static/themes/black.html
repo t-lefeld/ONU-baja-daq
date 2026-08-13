@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telemetry — Black</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Ctext x='32' y='45' font-size='36' font-family='monospace' font-weight='700' text-anchor='middle' fill='%23fff'%3ET%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg:     #000;
+  --fg:     #e8e8e8;
+  --muted:  #6b6b6b;
+  --border: #262626;
+  --line:   #fff;
+  --mono:   ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 var(--mono); }
+a { color: var(--fg); text-decoration: none; }
+
+/* ---- top underline text tabs: theme nav lives here ---- */
+nav.tabs {
+  display: flex; gap: 22px; padding: 14px 20px 0; border-bottom: 1px solid var(--border);
+}
+nav.tabs a {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); padding-bottom: 10px; border-bottom: 2px solid transparent;
+}
+nav.tabs a:hover { color: var(--fg); }
+nav.tabs a.active { color: var(--fg); border-bottom-color: var(--line); }
+
+header.bar {
+  display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: baseline;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+}
+header.bar h1 { font-size: 13px; margin: 0 10px 0 0; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.stat { font-size: 11.5px; color: var(--muted); }
+.stat b { color: var(--fg); font-weight: 700; }
+
+.link { font-size: 11.5px; font-weight: 700; }
+.link.live::before    { content: "[ok] "; }
+.link.waiting::before { content: "[..] "; }
+.link.error::before,
+.link.down::before    { content: "[!!] "; }
+.link.na::before      { content: "[--] "; }
+.link { color: var(--fg); }
+.link.waiting, .link.na { color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; font-size: 10.5px; color: var(--muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; padding: 8px 20px;
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: #000;
+}
+tbody td { padding: 7px 20px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr.node-first td { border-top: 1px solid var(--line); }
+tbody tr.stale td { color: var(--muted); }
+
+.cell-node { font-weight: 700; white-space: nowrap; }
+.cell-node span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.cell-chan { color: var(--muted); }
+.cell-value { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.cell-unit { color: var(--muted); font-size: 11px; margin-left: 3px; }
+.cell-state { font-size: 11px; white-space: nowrap; }
+.cell-state.fault { font-weight: 700; text-decoration: underline; }
+.cell-state.stale-s { color: var(--muted); }
+.spark { display: block; width: 120px; height: 22px; }
+
+footer { padding: 10px 20px 20px; font-size: 11.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav class="tabs">
+  <a href="modern.html">modern</a>
+  <a href="orange.html">orange</a>
+  <a href="cyan.html">cyan</a>
+  <a href="black.html" class="active">black</a>
+  <a href="white.html">white</a>
+  <a href="../index.html">gallery</a>
+</nav>
+
+<header class="bar">
+  <h1>telemetry</h1>
+  <span id="link" class="link na">connecting</span>
+  <span class="stat">source <b id="source">-</b></span>
+  <span class="stat">frames <b id="frames">0</b></span>
+  <span class="stat">rate <b id="rate">-</b></span>
+  <span class="stat">last <b id="age">-</b></span>
+  <span class="stat">can loss <b id="loss">0</b></span>
+  <span class="stat">crc err <b id="crc">0</b></span>
+</header>
+
+<table>
+  <thead>
+    <tr>
+      <th>node</th><th>channel</th><th>value</th><th>trend</th><th>state</th>
+    </tr>
+  </thead>
+  <tbody id="nodes"></tbody>
+</table>
+
+<footer id="detail"></footer>
+
+<script src="../js/telemetry-core.js"></script>
+<script>
+"use strict";
+const T = window.TelemetryCore;
+const el = id => document.getElementById(id);
+const ui = {
+  link: el("link"), source: el("source"), frames: el("frames"),
+  rate: el("rate"), age: el("age"), loss: el("loss"), crc: el("crc"),
+  nodes: el("nodes"), detail: el("detail"),
+};
+
+let panels = [];   // panels[node] = { rows:[tr...], stateCells:[...], chans:[{value,canvas,unit,data}] }
+let meta = null;
+let frameCount = 0;
+let totalLoss = 0;
+let lastFrameAt = 0;
+const rate = T.makeRateTracker();
+
+function buildPanels(m) {
+  ui.nodes.innerHTML = "";
+  panels = [];
+
+  for (const node of m.nodes) {
+    const chans = [];
+    const rows = [];
+    const stateCells = [];
+
+    node.channels.forEach((ch, i) => {
+      const tr = document.createElement("tr");
+      tr.className = "stale" + (i === 0 ? " node-first" : "");
+
+      const tdNode = document.createElement("td");
+      tdNode.className = "cell-node";
+      tdNode.innerHTML = i === 0
+        ? `${node.label}<span>#${node.node_id}</span>`
+        : "";
+
+      const tdChan = document.createElement("td");
+      tdChan.className = "cell-chan";
+      tdChan.textContent = ch.name;
+
+      const tdValue = document.createElement("td");
+      tdValue.className = "cell-value";
+      tdValue.innerHTML = `--<span class="cell-unit">${ch.unit}</span>`;
+
+      const tdSpark = document.createElement("td");
+      const canvas = document.createElement("canvas");
+      canvas.className = "spark";
+      tdSpark.appendChild(canvas);
+
+      const tdState = document.createElement("td");
+      tdState.className = "cell-state";
+      tdState.textContent = "waiting";
+
+      tr.append(tdNode, tdChan, tdValue, tdSpark, tdState);
+      ui.nodes.appendChild(tr);
+
+      rows.push(tr);
+      stateCells.push(tdState);
+      chans.push({ value: tdValue, canvas, unit: ch.unit, data: [] });
+    });
+
+    panels.push({ rows, stateCells, chans });
+  }
+}
+
+function applyFrame(frame, redraw) {
+  frameCount++;
+  lastFrameAt = performance.now();
+  rate.hit();
+
+  for (const rec of frame.nodes) {
+    const panel = panels[rec.node_id];
+    if (!panel) continue;
+    totalLoss += rec.loss;
+
+    let stateText, stateClass;
+    if (rec.stale) { stateText = "OFFLINE"; stateClass = "cell-state stale-s"; }
+    else if (rec.fault) { stateText = "FAULT"; stateClass = "cell-state fault"; }
+    else { stateText = rec.loss ? `${rec.loss} LOST` : "LIVE"; stateClass = "cell-state"; }
+
+    panel.rows.forEach(r => r.classList.toggle("stale", rec.stale));
+    panel.stateCells.forEach(c => { c.textContent = stateText; c.className = stateClass; });
+
+    rec.channels.forEach((ch, i) => {
+      const slot = panel.chans[i];
+      if (!slot) return;
+      slot.data.push(ch.value);
+      if (slot.data.length > T.HISTORY) slot.data.shift();
+      if (redraw) {
+        slot.value.innerHTML = `${T.fmt(ch.value)}<span class="cell-unit">${ch.unit}</span>`;
+        T.drawSpark(slot.canvas, slot.data, "#ffffff");
+      }
+    });
+  }
+
+  if (redraw) {
+    ui.frames.textContent = frameCount;
+    ui.loss.textContent = totalLoss;
+    const hz = rate.hz();
+    if (hz) ui.rate.textContent = hz.toFixed(2) + " Hz";
+  }
+}
+
+function applyStatus(s) {
+  ui.source.textContent = s.source || "-";
+  ui.crc.textContent = s.crc_errors ?? 0;
+  ui.link.className = "link " + (s.link || "na").replace("/", "");
+  ui.link.textContent = s.link || "-";
+  ui.detail.textContent = s.error ? `error: ${s.error}` : (s.detail || "");
+}
+
+function tickAge() {
+  if (!lastFrameAt) return;
+  const age = (performance.now() - lastFrameAt) / 1000;
+  ui.age.textContent = age.toFixed(1) + "s";
+}
+setInterval(tickAge, 200);
+
+T.connect({
+  onMeta: (m) => { meta = m; buildPanels(m); },
+  onStatus: applyStatus,
+  onFrame: applyFrame,
+  onClose: () => {
+    ui.link.className = "link down";
+    ui.link.textContent = "app not running";
+    ui.detail.textContent = "lost connection to the ground station";
+  },
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    panels.forEach(p => p.chans.forEach(c => T.drawSpark(c.canvas, c.data, "#ffffff")));
+  }, 120);
+});
+</script>
+</body>
+</html>

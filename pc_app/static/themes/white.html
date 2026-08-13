@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telemetry — White</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23ffffff' stroke='%23111' stroke-width='2'/%3E%3Ctext x='32' y='44' font-size='34' font-family='Georgia,serif' font-weight='700' text-anchor='middle' fill='%23111'%3ET%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg:     #ffffff;
+  --fg:     #111111;
+  --muted:  #8a8a8a;
+  --border: #ececec;
+  --accent: #111111;
+  --ok:     #1a7f37;
+  --warn:   #9a6700;
+  --bad:    #c1121f;
+  --serif:  Georgia, "Times New Roman", serif;
+  --sans:   ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono:   ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.6 var(--sans); }
+a { color: inherit; }
+
+header.top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 36px 48px 18px; max-width: 880px; margin: 0 auto;
+}
+header.top h1 { font-family: var(--serif); font-weight: 700; font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+
+/* ---- top-right minimal text nav: theme nav lives here ---- */
+nav.mini { display: flex; gap: 18px; padding-top: 6px; }
+nav.mini a {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); border-bottom: 1px solid transparent; padding-bottom: 2px;
+}
+nav.mini a:hover { color: var(--fg); }
+nav.mini a.active { color: var(--fg); border-bottom-color: var(--fg); }
+
+.statline {
+  display: flex; flex-wrap: wrap; gap: 8px 22px; max-width: 880px; margin: 0 auto;
+  padding: 0 48px 28px; border-bottom: 1px solid var(--border);
+}
+.stat { font-size: 12px; color: var(--muted); }
+.stat b { color: var(--fg); font-weight: 600; font-family: var(--mono); }
+
+.link { font-size: 12px; font-weight: 600; }
+.link.live    { color: var(--ok); }
+.link.waiting { color: var(--warn); }
+.link.error,
+.link.down    { color: var(--bad); }
+.link.na      { color: var(--muted); }
+
+main { max-width: 880px; margin: 0 auto; padding: 8px 48px 40px; }
+
+.node { padding: 30px 0; border-bottom: 1px solid var(--border); }
+.node.stale { opacity: .4; }
+.node:last-child { border-bottom: none; }
+
+.node-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+.node-title { font-family: var(--serif); font-size: 19px; font-weight: 700; }
+.node-title span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 10px; font-family: var(--sans); }
+.node-state { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+.chans { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.chan-name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.chan-value { font-family: var(--mono); font-size: 26px; font-weight: 300; }
+.chan-unit { font-size: 12px; color: var(--muted); margin-left: 4px; }
+.spark { display: block; width: 100%; height: 26px; margin-top: 8px; }
+
+footer { max-width: 880px; margin: 0 auto; padding: 0 48px 40px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Telemetry</h1>
+  <nav class="mini">
+    <a href="modern.html">Modern</a>
+    <a href="orange.html">Orange</a>
+    <a href="cyan.html">Cyan</a>
+    <a href="black.html">Black</a>
+    <a href="white.html" class="active">White</a>
+    <a href="../index.html">Gallery</a>
+  </nav>
+</header>
+
+<div class="statline">
+  <span id="link" class="link na">connecting</span>
+  <span class="stat">source <b id="source">-</b></span>
+  <span class="stat">frames <b id="frames">0</b></span>
+  <span class="stat">rate <b id="rate">-</b></span>
+  <span class="stat">last <b id="age">-</b></span>
+  <span class="stat">CAN loss <b id="loss">0</b></span>
+  <span class="stat">CRC err <b id="crc">0</b></span>
+</div>
+
+<main id="nodes"></main>
+<footer id="detail"></footer>
+
+<script src="../js/telemetry-core.js"></script>
+<script>
+"use strict";
+const T = window.TelemetryCore;
+const el = id => document.getElementById(id);
+const ui = {
+  link: el("link"), source: el("source"), frames: el("frames"),
+  rate: el("rate"), age: el("age"), loss: el("loss"), crc: el("crc"),
+  nodes: el("nodes"), detail: el("detail"),
+};
+
+let panels = [];
+let meta = null;
+let frameCount = 0;
+let totalLoss = 0;
+let lastFrameAt = 0;
+const rate = T.makeRateTracker();
+
+function buildPanels(m) {
+  ui.nodes.innerHTML = "";
+  panels = [];
+  for (const node of m.nodes) {
+    const root = document.createElement("section");
+    root.className = "node stale";
+
+    const head = document.createElement("div");
+    head.className = "node-head";
+    head.innerHTML = `<div class="node-title">${node.label}<span>node ${node.node_id}</span></div>`;
+    const state = document.createElement("span");
+    state.className = "node-state";
+    state.textContent = "waiting";
+    head.appendChild(state);
+    root.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "chans";
+
+    const chans = [];
+    for (const ch of node.channels) {
+      const wrap = document.createElement("div");
+      wrap.className = "chan";
+      const name = document.createElement("div");
+      name.className = "chan-name";
+      name.textContent = ch.name;
+      const value = document.createElement("div");
+      value.className = "chan-value";
+      value.innerHTML = `--<span class="chan-unit">${ch.unit}</span>`;
+      const canvas = document.createElement("canvas");
+      canvas.className = "spark";
+      wrap.append(name, value, canvas);
+      grid.appendChild(wrap);
+      chans.push({ value, canvas, unit: ch.unit, data: [] });
+    }
+    root.appendChild(grid);
+    ui.nodes.appendChild(root);
+    panels.push({ root, state, chans });
+  }
+}
+
+function applyFrame(frame, redraw) {
+  frameCount++;
+  lastFrameAt = performance.now();
+  rate.hit();
+
+  for (const rec of frame.nodes) {
+    const panel = panels[rec.node_id];
+    if (!panel) continue;
+    totalLoss += rec.loss;
+    panel.root.classList.toggle("stale", rec.stale);
+
+    if (rec.stale) { panel.state.textContent = "offline"; panel.state.style.color = "var(--bad)"; }
+    else if (rec.fault) { panel.state.textContent = "sensor fault"; panel.state.style.color = "var(--warn)"; }
+    else { panel.state.textContent = rec.loss ? `${rec.loss} lost` : "live"; panel.state.style.color = "var(--ok)"; }
+
+    rec.channels.forEach((ch, i) => {
+      const slot = panel.chans[i];
+      if (!slot) return;
+      slot.data.push(ch.value);
+      if (slot.data.length > T.HISTORY) slot.data.shift();
+      if (redraw) {
+        slot.value.innerHTML = `${T.fmt(ch.value)}<span class="chan-unit">${ch.unit}</span>`;
+        T.drawSpark(slot.canvas, slot.data, "#111111");
+      }
+    });
+  }
+
+  if (redraw) {
+    ui.frames.textContent = frameCount;
+    ui.loss.textContent = totalLoss;
+    const hz = rate.hz();
+    if (hz) ui.rate.textContent = hz.toFixed(2) + " Hz";
+  }
+}
+
+function applyStatus(s) {
+  ui.source.textContent = s.source || "-";
+  ui.crc.textContent = s.crc_errors ?? 0;
+  ui.link.className = "link " + (s.link || "na").replace("/", "");
+  ui.link.textContent = s.link || "-";
+  ui.detail.textContent = s.error ? `error: ${s.error}` : (s.detail || "");
+}
+
+function tickAge() {
+  if (!lastFrameAt) return;
+  const age = (performance.now() - lastFrameAt) / 1000;
+  ui.age.textContent = age.toFixed(1) + "s";
+  const limit = meta ? meta.frame_period_ms / 1000 * 3 : 2;
+  ui.age.style.color = age > limit ? "var(--bad)" : "";
+}
+setInterval(tickAge, 200);
+
+T.connect({
+  onMeta: (m) => { meta = m; buildPanels(m); },
+  onStatus: applyStatus,
+  onFrame: applyFrame,
+  onClose: () => {
+    ui.link.className = "link down";
+    ui.link.textContent = "app not running";
+    ui.detail.textContent = "lost connection to the ground station";
+  },
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    panels.forEach(p => p.chans.forEach(c => T.drawSpark(c.canvas, c.data, "#111111")));
+  }, 120);
+});
+</script>
+</body>
+</html>

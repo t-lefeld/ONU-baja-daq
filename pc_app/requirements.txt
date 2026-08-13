@@ -1,0 +1,25 @@
+# Ground station dependencies.
+#
+# aiohttp serves the dashboards, which are the UI now - it is not optional
+# any more. pyserial talks to the E22 dongle. That is the whole runtime.
+aiohttp>=3.9
+pyserial>=3.5
+
+# PySide6 is NOT required. The native window it powered (telemetry/qt_app.py,
+# reachable via `run.py --native`) is retired: it only ever spoke v1's 3-node
+# channel set, and it pulled a full GUI toolkit in for one window that the
+# browser dashboards replaced. Install these two only if you specifically
+# want --native back:
+#   PySide6-Essentials>=6.5
+#   shiboken6>=6.5
+#
+# If you do, use PySide6-Essentials rather than the "PySide6" umbrella
+# package - the umbrella pulls in PySide6-Addons, which bundles QtWebEngine,
+# an entire embedded Chromium, for a window that only ever used
+# QtCore/QtGui/QtWidgets.
+
+# Only needed to build the .exe (see build.bat):
+#   pyinstaller>=6.0
+
+# Only needed for tools/test_dbc.py and tools/test_dbc_v2.py:
+#   cantools>=39

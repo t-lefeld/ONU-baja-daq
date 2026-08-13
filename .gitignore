@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Ground station output
+pc_app/logs/
+*.csv
+*.tlm
+
+# Browser profile created by `run.py --web` when it launches the dashboard in
+# Edge/Chrome app-mode. ~1000 files of cache and extension data, and it
+# includes Chromium's "Login Data" and "Vpn Tokens" databases. App-generated
+# and almost certainly empty of anything real, but a browser profile has no
+# business in a git repo either way - especially a public one.
+pc_app/.browser-profile/
+
+# PyInstaller build output
+pc_app/build/
+pc_app/dist/
+
+# Host test artefacts
+harness
+harness.exe
+*.o
+*.obj
+
+# STM32CubeIDE build output
+Debug/
+Release/
+*.elf
+*.map
+*.list
+*.bin
+*.hex
+.settings/
+.metadata/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# CubeIDE per-workspace settings inside vendored projects
+firmware/projects/*/.settings/
+
+# Real field-test captures ARE meant to be committed (see field_data/README.md),
+# even though *.tlm/*.csv are excluded everywhere else above.
+!field_data/**/*.tlm
+!field_data/**/*.TLM
+!field_data/**/*.csv

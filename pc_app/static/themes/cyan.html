@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telemetry — Cyan</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Ctext x='32' y='45' font-size='36' font-family='monospace' font-weight='700' text-anchor='middle' fill='%2300f0ff'%3ET%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg:      #030607;
+  --panel:   #05100f;
+  --fg:      #d8fbff;
+  --muted:   #4f8a90;
+  --border:  #0c3a3d;
+  --accent:  #00f0ff;
+  --ok:      #37ffb2;
+  --warn:    #ffe066;
+  --bad:     #ff4d6d;
+  --mono:    ui-monospace, "Cascadia Mono", "Consolas", monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; padding-bottom: 64px;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,240,255,.035) 0px, rgba(0,240,255,.035) 1px, transparent 1px, transparent 3px),
+    var(--bg);
+  color: var(--fg); font: 13px/1.5 var(--mono);
+}
+a { color: inherit; text-decoration: none; }
+
+header.bar {
+  display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center;
+  padding: 16px 22px; border-bottom: 1px solid var(--border);
+}
+header.bar h1 {
+  font-size: 16px; margin: 0 12px 0 0; font-weight: 700; letter-spacing: .12em;
+  color: var(--accent); text-shadow: 0 0 10px rgba(0,240,255,.6);
+}
+.stat { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.stat b { color: var(--fg); font-weight: 700; text-transform: none; }
+
+.link { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.link.live    { color: var(--ok);   text-shadow: 0 0 8px rgba(55,255,178,.7); }
+.link.waiting { color: var(--warn); text-shadow: 0 0 8px rgba(255,224,102,.6); }
+.link.error,
+.link.down    { color: var(--bad);  text-shadow: 0 0 8px rgba(255,77,109,.7); }
+.link.na      { color: var(--muted); }
+
+main {
+  display: grid; gap: 16px; padding: 18px 22px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+/* angular clipped "instrument panel" corners */
+.node {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  box-shadow: 0 0 0 1px rgba(0,240,255,.05), 0 0 24px -8px rgba(0,240,255,.25);
+}
+.node.stale { opacity: .35; }
+
+.node-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+}
+.node-title { font-weight: 700; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; }
+.node-title span { color: var(--muted); font-weight: 400; font-size: 10.5px; margin-left: 8px; text-transform: none; }
+.node-state { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+
+.chan { padding: 10px 16px; border-top: 1px dashed var(--border); }
+.chan:first-of-type { border-top: none; }
+.chan-row { display: flex; justify-content: space-between; align-items: baseline; }
+.chan-name { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.chan-value { font-size: 19px; font-weight: 700; color: var(--accent); text-shadow: 0 0 10px rgba(0,240,255,.35); }
+.chan-unit { font-size: 10px; color: var(--muted); margin-left: 3px; }
+.spark { display: block; width: 100%; height: 28px; margin-top: 4px; }
+
+footer { padding: 0 22px 12px; font-size: 11.5px; color: var(--muted); }
+
+/* ---- bottom fixed tab dock: theme nav lives here ---- */
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; justify-content: center; gap: 2px;
+  background: #010304; border-top: 1px solid var(--border);
+  padding: 8px 10px; box-shadow: 0 -6px 24px rgba(0,240,255,.06);
+}
+.dock a {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); padding: 8px 16px; border: 1px solid transparent;
+}
+.dock a:hover { color: var(--fg); }
+.dock a.active {
+  color: var(--accent); border: 1px solid var(--border);
+  text-shadow: 0 0 8px rgba(0,240,255,.6);
+  clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%, 0 6px);
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1>// TELEMETRY</h1>
+  <span id="link" class="link na">connecting</span>
+  <span class="stat">source <b id="source">-</b></span>
+  <span class="stat">frames <b id="frames">0</b></span>
+  <span class="stat">rate <b id="rate">-</b></span>
+  <span class="stat">last <b id="age">-</b></span>
+  <span class="stat">can loss <b id="loss">0</b></span>
+  <span class="stat">crc err <b id="crc">0</b></span>
+</header>
+
+<main id="nodes"></main>
+<footer id="detail"></footer>
+
+<nav class="dock">
+  <a href="modern.html">Modern</a>
+  <a href="orange.html">Orange</a>
+  <a href="cyan.html" class="active">Cyan</a>
+  <a href="black.html">Black</a>
+  <a href="white.html">White</a>
+  <a href="../index.html">Gallery</a>
+</nav>
+
+<script src="../js/telemetry-core.js"></script>
+<script>
+"use strict";
+const T = window.TelemetryCore;
+const el = id => document.getElementById(id);
+const ui = {
+  link: el("link"), source: el("source"), frames: el("frames"),
+  rate: el("rate"), age: el("age"), loss: el("loss"), crc: el("crc"),
+  nodes: el("nodes"), detail: el("detail"),
+};
+
+let panels = [];
+let meta = null;
+let frameCount = 0;
+let totalLoss = 0;
+let lastFrameAt = 0;
+const rate = T.makeRateTracker();
+
+function buildPanels(m) {
+  ui.nodes.innerHTML = "";
+  panels = [];
+  for (const node of m.nodes) {
+    const root = document.createElement("section");
+    root.className = "node stale";
+    const head = document.createElement("div");
+    head.className = "node-head";
+    head.innerHTML = `<div class="node-title">${node.label}<span>node ${node.node_id}</span></div>`;
+    const state = document.createElement("span");
+    state.className = "node-state";
+    state.textContent = "waiting";
+    head.appendChild(state);
+    root.appendChild(head);
+
+    const chans = [];
+    for (const ch of node.channels) {
+      const wrap = document.createElement("div");
+      wrap.className = "chan";
+      const row = document.createElement("div");
+      row.className = "chan-row";
+      row.innerHTML = `<span class="chan-name">${ch.name}</span>`;
+      const value = document.createElement("span");
+      value.className = "chan-value";
+      value.innerHTML = `--<span class="chan-unit">${ch.unit}</span>`;
+      row.appendChild(value);
+      wrap.appendChild(row);
+      const canvas = document.createElement("canvas");
+      canvas.className = "spark";
+      wrap.appendChild(canvas);
+      root.appendChild(wrap);
+      chans.push({ value, canvas, unit: ch.unit, data: [] });
+    }
+    ui.nodes.appendChild(root);
+    panels.push({ root, state, chans });
+  }
+}
+
+function accentColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#00f0ff";
+}
+
+function applyFrame(frame, redraw) {
+  frameCount++;
+  lastFrameAt = performance.now();
+  rate.hit();
+
+  for (const rec of frame.nodes) {
+    const panel = panels[rec.node_id];
+    if (!panel) continue;
+    totalLoss += rec.loss;
+    panel.root.classList.toggle("stale", rec.stale);
+
+    if (rec.stale) { panel.state.textContent = "OFFLINE"; panel.state.style.color = "var(--bad)"; }
+    else if (rec.fault) { panel.state.textContent = "FAULT"; panel.state.style.color = "var(--warn)"; }
+    else { panel.state.textContent = rec.loss ? `${rec.loss} LOST` : "LIVE"; panel.state.style.color = "var(--ok)"; }
+
+    rec.channels.forEach((ch, i) => {
+      const slot = panel.chans[i];
+      if (!slot) return;
+      slot.data.push(ch.value);
+      if (slot.data.length > T.HISTORY) slot.data.shift();
+      if (redraw) {
+        slot.value.innerHTML = `${T.fmt(ch.value)}<span class="chan-unit">${ch.unit}</span>`;
+        T.drawSpark(slot.canvas, slot.data, accentColor());
+      }
+    });
+  }
+
+  if (redraw) {
+    ui.frames.textContent = frameCount;
+    ui.loss.textContent = totalLoss;
+    const hz = rate.hz();
+    if (hz) ui.rate.textContent = hz.toFixed(2) + " Hz";
+  }
+}
+
+function applyStatus(s) {
+  ui.source.textContent = s.source || "-";
+  ui.crc.textContent = s.crc_errors ?? 0;
+  ui.link.className = "link " + (s.link || "na").replace("/", "");
+  ui.link.textContent = s.link || "-";
+  ui.detail.textContent = s.error ? `error: ${s.error}` : (s.detail || "");
+}
+
+function tickAge() {
+  if (!lastFrameAt) return;
+  const age = (performance.now() - lastFrameAt) / 1000;
+  ui.age.textContent = age.toFixed(1) + "s";
+  const limit = meta ? meta.frame_period_ms / 1000 * 3 : 2;
+  ui.age.style.color = age > limit ? "var(--bad)" : "";
+}
+setInterval(tickAge, 200);
+
+T.connect({
+  onMeta: (m) => { meta = m; buildPanels(m); },
+  onStatus: applyStatus,
+  onFrame: applyFrame,
+  onClose: () => {
+    ui.link.className = "link down";
+    ui.link.textContent = "LINK DOWN";
+    ui.detail.textContent = "lost connection to the ground station";
+  },
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    panels.forEach(p => p.chans.forEach(c => T.drawSpark(c.canvas, c.data, accentColor())));
+  }, 120);
+});
+</script>
+</body>
+</html>

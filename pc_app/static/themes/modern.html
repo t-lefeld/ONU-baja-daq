@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telemetry — Modern</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%236366f1'/%3E%3Ctext x='32' y='44' font-size='34' font-family='ui-sans-serif,Arial' font-weight='700' text-anchor='middle' fill='white'%3ET%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg:        #0d0f14;
+  --bg-grad:   radial-gradient(1200px 600px at 15% -10%, #1b2140 0%, #0d0f14 55%),
+               radial-gradient(900px 500px at 100% 0%, #0f2b31 0%, #0d0f14 50%);
+  --glass:     rgba(255,255,255,0.045);
+  --glass-brd: rgba(255,255,255,0.09);
+  --fg:        #eef0f6;
+  --muted:     #8b93a7;
+  --accent:    #7c8cff;
+  --accent2:   #35d4c7;
+  --ok:        #35d99b;
+  --warn:      #f5b942;
+  --bad:       #ff6b6b;
+  --radius:    18px;
+  --font:      "Inter", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono:      ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh;
+  background: var(--bg-grad), var(--bg);
+  color: var(--fg); font: 14px/1.5 var(--font);
+}
+a { color: inherit; }
+
+/* ---- top pill tab bar: theme nav lives here, centered, floating ---- */
+.themebar {
+  display: flex; justify-content: center; padding: 18px 16px 6px;
+}
+.pills {
+  display: inline-flex; gap: 4px; padding: 5px;
+  background: var(--glass); border: 1px solid var(--glass-brd);
+  border-radius: 999px; backdrop-filter: blur(14px);
+}
+.pills a {
+  text-decoration: none; font-size: 12.5px; font-weight: 600;
+  padding: 7px 16px; border-radius: 999px; color: var(--muted);
+  transition: color .15s, background .15s;
+}
+.pills a:hover { color: var(--fg); }
+.pills a.active {
+  color: #0d0f14; background: linear-gradient(135deg, var(--accent), var(--accent2));
+}
+
+header.hero {
+  display: flex; flex-wrap: wrap; gap: 10px 26px; align-items: center;
+  justify-content: space-between; padding: 8px 28px 20px; max-width: 1180px;
+  margin: 0 auto;
+}
+header.hero h1 {
+  font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #fff, var(--accent2));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.stats { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.stat { font-size: 12px; color: var(--muted); }
+.stat b { color: var(--fg); font-weight: 600; font-family: var(--mono); }
+
+.link { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.link.live    { color: var(--ok);   background: rgba(53,217,155,.12); }
+.link.waiting { color: var(--warn); background: rgba(245,185,66,.12); }
+.link.error,
+.link.down    { color: var(--bad);  background: rgba(255,107,107,.12); }
+.link.na      { color: var(--muted);background: rgba(255,255,255,.06); }
+
+main {
+  max-width: 1180px; margin: 0 auto; padding: 4px 28px 30px;
+  display: grid; gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.node {
+  background: var(--glass); border: 1px solid var(--glass-brd);
+  border-radius: var(--radius); backdrop-filter: blur(14px);
+  box-shadow: 0 20px 40px -24px rgba(0,0,0,.6);
+  transition: opacity .2s;
+}
+.node.stale { opacity: .45; }
+
+.node-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 18px; border-bottom: 1px solid var(--glass-brd);
+}
+.node-title { font-weight: 700; font-size: 14px; }
+.node-title span { color: var(--muted); font-weight: 500; font-size: 11.5px; margin-left: 8px; }
+.node-state {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,.06);
+}
+
+.chan { padding: 12px 18px; border-top: 1px solid var(--glass-brd); }
+.chan:first-of-type { border-top: none; }
+.chan-row { display: flex; justify-content: space-between; align-items: baseline; }
+.chan-name { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.chan-value { font-family: var(--mono); font-size: 20px; font-weight: 600; }
+.chan-unit { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.spark { display: block; width: 100%; height: 32px; margin-top: 6px; }
+
+footer { max-width: 1180px; margin: 0 auto; padding: 0 28px 24px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="themebar">
+  <nav class="pills">
+    <a href="modern.html" class="active">Modern</a>
+    <a href="orange.html">Orange</a>
+    <a href="cyan.html">Cyan</a>
+    <a href="black.html">Black</a>
+    <a href="white.html">White</a>
+    <a href="../index.html">Gallery</a>
+  </nav>
+</div>
+
+<header class="hero">
+  <h1>Telemetry</h1>
+  <div class="stats">
+    <span id="link" class="link na">connecting</span>
+    <span class="stat">source <b id="source">-</b></span>
+    <span class="stat">frames <b id="frames">0</b></span>
+    <span class="stat">rate <b id="rate">-</b></span>
+    <span class="stat">last <b id="age">-</b></span>
+    <span class="stat">CAN loss <b id="loss">0</b></span>
+    <span class="stat">CRC err <b id="crc">0</b></span>
+  </div>
+</header>
+
+<main id="nodes"></main>
+<footer id="detail"></footer>
+
+<script src="../js/telemetry-core.js"></script>
+<script>
+"use strict";
+const T = window.TelemetryCore;
+const el = id => document.getElementById(id);
+const ui = {
+  link: el("link"), source: el("source"), frames: el("frames"),
+  rate: el("rate"), age: el("age"), loss: el("loss"), crc: el("crc"),
+  nodes: el("nodes"), detail: el("detail"),
+};
+
+let panels = [];
+let meta = null;
+let frameCount = 0;
+let totalLoss = 0;
+let lastFrameAt = 0;
+const rate = T.makeRateTracker();
+
+function buildPanels(m) {
+  ui.nodes.innerHTML = "";
+  panels = [];
+  for (const node of m.nodes) {
+    const root = document.createElement("section");
+    root.className = "node stale";
+
+    const head = document.createElement("div");
+    head.className = "node-head";
+    head.innerHTML = `<div class="node-title">${node.label}<span>node ${node.node_id}</span></div>`;
+    const state = document.createElement("span");
+    state.className = "node-state";
+    state.textContent = "waiting";
+    head.appendChild(state);
+    root.appendChild(head);
+
+    const chans = [];
+    for (const ch of node.channels) {
+      const wrap = document.createElement("div");
+      wrap.className = "chan";
+      const row = document.createElement("div");
+      row.className = "chan-row";
+      row.innerHTML = `<span class="chan-name">${ch.name}</span>`;
+      const value = document.createElement("span");
+      value.className = "chan-value";
+      value.innerHTML = `--<span class="chan-unit">${ch.unit}</span>`;
+      row.appendChild(value);
+      wrap.appendChild(row);
+      const canvas = document.createElement("canvas");
+      canvas.className = "spark";
+      wrap.appendChild(canvas);
+      root.appendChild(wrap);
+      chans.push({ value, canvas, unit: ch.unit, data: [] });
+    }
+    ui.nodes.appendChild(root);
+    panels.push({ root, state, chans });
+  }
+}
+
+function accentColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--accent2").trim() || "#35d4c7";
+}
+
+function applyFrame(frame, redraw) {
+  frameCount++;
+  lastFrameAt = performance.now();
+  rate.hit();
+
+  for (const rec of frame.nodes) {
+    const panel = panels[rec.node_id];
+    if (!panel) continue;
+    totalLoss += rec.loss;
+    panel.root.classList.toggle("stale", rec.stale);
+
+    if (rec.stale) { panel.state.textContent = "offline"; panel.state.style.color = "var(--bad)"; }
+    else if (rec.fault) { panel.state.textContent = "sensor fault"; panel.state.style.color = "var(--warn)"; }
+    else { panel.state.textContent = rec.loss ? `${rec.loss} lost` : "live"; panel.state.style.color = "var(--ok)"; }
+
+    rec.channels.forEach((ch, i) => {
+      const slot = panel.chans[i];
+      if (!slot) return;
+      slot.data.push(ch.value);
+      if (slot.data.length > T.HISTORY) slot.data.shift();
+      if (redraw) {
+        slot.value.innerHTML = `${T.fmt(ch.value)}<span class="chan-unit">${ch.unit}</span>`;
+        T.drawSpark(slot.canvas, slot.data, accentColor());
+      }
+    });
+  }
+
+  if (redraw) {
+    ui.frames.textContent = frameCount;
+    ui.loss.textContent = totalLoss;
+    const hz = rate.hz();
+    if (hz) ui.rate.textContent = hz.toFixed(2) + " Hz";
+  }
+}
+
+function applyStatus(s) {
+  ui.source.textContent = s.source || "-";
+  ui.crc.textContent = s.crc_errors ?? 0;
+  ui.link.className = "link " + (s.link || "na").replace("/", "");
+  ui.link.textContent = s.link || "-";
+  ui.detail.textContent = s.error ? `error: ${s.error}` : (s.detail || "");
+}
+
+function tickAge() {
+  if (!lastFrameAt) return;
+  const age = (performance.now() - lastFrameAt) / 1000;
+  ui.age.textContent = age.toFixed(1) + "s";
+  const limit = meta ? meta.frame_period_ms / 1000 * 3 : 2;
+  ui.age.style.color = age > limit ? "var(--bad)" : "";
+}
+setInterval(tickAge, 200);
+
+T.connect({
+  onMeta: (m) => { meta = m; buildPanels(m); },
+  onStatus: applyStatus,
+  onFrame: applyFrame,
+  onClose: () => {
+    ui.link.className = "link down";
+    ui.link.textContent = "app not running";
+    ui.detail.textContent = "lost connection to the ground station";
+  },
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    panels.forEach(p => p.chans.forEach(c => T.drawSpark(c.canvas, c.data, accentColor())));
+  }, 120);
+});
+</script>
+</body>
+</html>
