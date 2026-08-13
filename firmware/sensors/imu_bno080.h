@@ -35,7 +35,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "stm32f1xx_hal.h"   /* TODO: swap to stm32l4xx_hal.h if this instance runs on the Nucleo hub */
+#include "main.h"
 
 #ifdef __cplusplus
 extern "C" {
