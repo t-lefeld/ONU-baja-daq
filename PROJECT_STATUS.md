@@ -1,25 +1,31 @@
 # Project status and what's left
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## The one-paragraph version
 
-There are **two parallel systems** in this repo right now, and it's worth being
-clear about which is which.
+There are now **three** stages in this repo: v1, v2, v3.
 
 **v1 is real and working.** Three Bluepill nodes → CAN → LoRa → SD → PC app,
 verified end to end on actual hardware. It carries 9 placeholder channels
-(temp/humidity/pressure, batt/current/power, accel x/y/z).
+(temp/humidity/pressure, batt/current/power, accel x/y/z). Kept alive on the
+1st Bluepill as a bench spare even after the v2 cutover below.
 
-**v2 is a tested library that nothing runs yet.** The protocol, the Python
-decoder, the DBC, the sensor drivers, and the E-CVT controller all exist, all
-pass tests (13 suites, all green), and none of them are wired into any
-firmware or into the ground station. `can_node.c` and `telemetry_hub.c` are
-still pure v1 — no `#include` of the v2 protocol anywhere in `firmware/`.
+**v2 is wired into real projects as of 2026-08-14, not yet bench-tested.**
+The protocol, Python decoder, DBC, sensor drivers, E-CVT controller, and both
+the Bluepill node firmware (`can_node_v2.c`) and hub firmware
+(`telemetry_hub_v2.c`) all exist and pass tests (15 suites, all green). As of
+today, `can_node_v2.c`/`telemetry_hub_v2.c` are copied into the 2nd Bluepill
+(Front), 3rd Bluepill (Rear), and Nucleo hub CubeIDE projects, with each
+project's `main.c` now calling the v2 init/task functions instead of v1's.
+All 24 channels are still **simulated in firmware**, not read from real
+sensors — that's v3. **No v2 byte has been confirmed over a real wire yet** —
+the code is wired in and internally consistent per the test suite, but it has
+not been flashed or run on the bench. That's the next milestone.
 
-That's a deliberate state, not an oversight: the base got built first so the
-integration can happen against something stable. But it means **no v2 byte has
-ever gone over a real wire.**
+**v3 hasn't started.** Real sensors go into `can_node_v2.c`'s
+`sim_read_channels()` and `telemetry_hub_v2.c`'s `hub2_originate_node0/3()`
+one at a time, once v2 is proven solid on the bench.
 
 ---
 
@@ -39,29 +45,29 @@ These are the only items that can't be done at a keyboard.
       on a ~200 B/s estimate that came from a code comment and has never been
       measured. See Track C — this number decides whether v2 fits at 2 Hz.
 
-## Track B — make v2 actually run (software, I can do)
+## Track B — make v2 actually run
 
-Ordered by dependency. Each one is blocked by the one above it.
-
-- [ ] **1. Wire `proto_v2.py` into the ground station.** The decoder is
-      byte-exact with the C and fully tested, but nothing calls it —
-      `sources.py` / `pump.py` / `run.py` only know v1. Needs a
-      `--proto v2` switch. *Deliberately deferred:* this edits the one code
-      path currently proven working on your hardware, and there's no v2 data
-      to feed it yet, so there's no rush.
-- [ ] **2. Write a v2 node firmware.** Nothing transmits v2. `can_node.c`
-      would need to pack channels into multiple pages via
-      `tlm2_can_pack_pages()` instead of one 8-byte frame. Best done as a new
-      file alongside the working `can_node.c`, not as an edit to it.
-- [ ] **3. Write v2 hub reassembly.** `telemetry_hub.c` collects one frame per
-      node; v2 needs the epoch-based page reassembler
-      (`tlm2_reasm_*`) so torn bursts don't publish half-updated snapshots.
-- [ ] **4. Decide how Node 3 (E-CVT/Motor) gets populated.** It's the only
-      node with no physical board — its data comes from the ODrive over CAN,
-      read by the hub. So the hub both *receives* it and *originates* that
-      node's record. That's a real design question, not a coding task, and
-      it's currently unanswered.
-- [ ] **5. Bundle the new dashboards into the built .exe.** `pc_app/build.bat`
+- [x] **1. Wire `proto_v2.py` into the ground station.** Done — `protocols.py`
+      switches between v1/v2, `run.py --proto v2 --port COM9` speaks it live.
+- [x] **2. Write a v2 node firmware.** Done — `can_node_v2.c`, now copied into
+      the 2nd and 3rd Bluepill projects (Front/Rear) with `main.c` pointed at
+      it.
+- [x] **3. Write v2 hub reassembly.** Done — `telemetry_hub_v2.c` (502 lines,
+      committed 2026-08-13), now copied into the Nucleo hub project with
+      `main.c` pointed at it and v1's `telemetry_hub.c` excluded from the
+      build via `.cproject` (both define a strong
+      `HAL_CAN_RxFifo0MsgPendingCallback`; linking both is a link error).
+- [x] **4. Decide how Node 3 (E-CVT/Motor) gets populated.** Settled: the hub
+      originates nodes 0 and 3 itself, simulated for now, through the same
+      `tlm2_reasm_apply_page()` path real CAN frames use — see
+      `firmware/NODE_INTEGRATION_V2.md`'s "Open questions" section for the
+      reasoning.
+- [ ] **5. Bench-test the above on real hardware.** Nothing above has been
+      flashed or run yet — flash Front/Rear/Hub, leave the 1st Bluepill on
+      v1 as spare, run the ground station in `--proto v2`, confirm all 24
+      channels update from real hardware. This is the actual "v2 works" bar,
+      not the code being wired in.
+- [ ] **6. Bundle the new dashboards into the built .exe.** `pc_app/build.bat`
       doesn't include `simulation/dashboards/`, so the 4 designs work when
       running from source but would 404 in a PyInstaller build.
 

@@ -37,6 +37,21 @@ BLUEPILLS = ["1st Bluepill", "2nd Bluepill", "3rd Bluepill"]
 RETIRED_BLUEPILL = "4th Bluepill"  # dropped when the system went to 3 nodes; not synced
 NUCLEO = "Nucleo CAN Bus Test"
 
+# v1 -> v2 cutover (see HANDOFF.md): Front/Rear + the hub now run the v2
+# protocol with simulated channel values. v1 files themselves are untouched
+# either way - this split is only about which project's main.c calls what.
+#
+# TEMPORARY, 2026-08-14: the 1st Bluepill (v1 NODE_ID 0, otherwise idle in
+# v2 - node 0 is the Hub itself, node 3 has no physical board in the final
+# design) is standing in for node 3 (E-CVT/Motor) for the v2 bench test, so
+# the hub's reassembler gets exercised by a real 4th CAN transmitter. It is
+# NOT a v1 fallback spare while wearing this hat. See can_node_v2.h and
+# HUB2_SIMULATE_NODE3 in telemetry_hub_v2.h.
+V1_ONLY_BLUEPILLS: list[str] = []
+V2_BLUEPILLS = ["2nd Bluepill", "3rd Bluepill"]
+MOTOR_STANDIN_BLUEPILL = "1st Bluepill"
+MOTOR_STANDIN_NODE_ID = 3
+
 failures: list[str] = []
 checks = 0
 
@@ -79,6 +94,18 @@ def test_copies_match() -> None:
         for stem in ("telemetry_hub", "lora_e22", "sd_log", "sd_spi", "fat32")
         for ext in ("h", "c")
     }
+    shared_v2 = {
+        "telemetry_proto_v2.h": ROOT / "protocol" / "telemetry_proto_v2.h",
+        "telemetry_proto_v2.c": ROOT / "protocol" / "telemetry_proto_v2.c",
+    }
+    node_v2 = {
+        "can_node_v2.h": ROOT / "firmware" / "bluepill_node" / "can_node_v2.h",
+        "can_node_v2.c": ROOT / "firmware" / "bluepill_node" / "can_node_v2.c",
+    }
+    hub_v2 = {
+        "telemetry_hub_v2.h": ROOT / "firmware" / "nucleo_hub" / "telemetry_hub_v2.h",
+        "telemetry_hub_v2.c": ROOT / "firmware" / "nucleo_hub" / "telemetry_hub_v2.c",
+    }
 
     def compare(project: str, mapping: dict[str, Path]) -> None:
         for name, canonical in mapping.items():
@@ -91,20 +118,46 @@ def test_copies_match() -> None:
             ok(f"{project}: Core/{sub}/{name} matches canonical",
                copy.read_bytes() == canonical.read_bytes())
 
+    # v1's mirrored copies stay present and byte-identical everywhere,
+    # cut over to v2 or not - that's what "never modify v1 files" buys you:
+    # the spare Bluepill (or a hardware regression) can always fall back to
+    # them without resyncing anything.
     for p in BLUEPILLS:
         compare(p, shared)
         compare(p, node)
-
     compare(NUCLEO, shared)
     compare(NUCLEO, hub)
 
-    # The Bluepill main.c is generated from one template; all three active
-    # boards must agree. The retired 4th is not checked against the template
-    # or the canonical sources - see the module docstring.
+    # v2's mirrored copies, everywhere a v2 firmware image actually gets
+    # built from them - including the motor stand-in, which is a real v2
+    # Bluepill build (NODE_ID 3) even though its role is temporary.
+    all_v2_bluepills = V2_BLUEPILLS + [MOTOR_STANDIN_BLUEPILL]
+    for p in all_v2_bluepills:
+        compare(p, shared_v2)
+        compare(p, node_v2)
+    compare(NUCLEO, shared_v2)
+    compare(NUCLEO, hub_v2)
+
+    # The Bluepill main.c is generated from one template; a v1-only spare
+    # (none right now - see V1_ONLY_BLUEPILLS) would need to match it
+    # exactly. The retired 4th is not checked against the template or the
+    # canonical sources - see the module docstring.
     template = (ROOT / "firmware" / "bluepill_node" / "main_template.c").read_bytes()
-    for p in BLUEPILLS:
+    for p in V1_ONLY_BLUEPILLS:
         ok(f"{p}: main.c matches the template",
            (PROJ / p / "Core" / "Src" / "main.c").read_bytes() == template)
+
+    # All three active Bluepills got the same mechanical v2 edit (can_node.h
+    # -> can_node_v2.h, can_node_init/task -> can_node_v2_init/task) applied
+    # to the same starting template - node identity lives entirely in
+    # node_id.h, not main.c - so all three main.c files should agree with
+    # each other byte-for-byte even though none of them matches the v1
+    # template anymore.
+    v2_mains = {p: (PROJ / p / "Core" / "Src" / "main.c").read_bytes() for p in all_v2_bluepills}
+    first_v2, *rest_v2 = all_v2_bluepills
+    for p in rest_v2:
+        ok(f"{p}: main.c matches {first_v2} (same v2 edit applied to both)",
+           v2_mains[p] == v2_mains[first_v2])
 
     ok(f"{RETIRED_BLUEPILL}: still present but intentionally unsynced",
        (PROJ / RETIRED_BLUEPILL / "Core" / "Inc" / "node_id.h").exists())
@@ -113,8 +166,13 @@ def test_copies_match() -> None:
 def test_node_ids() -> None:
     print("-- node identity: unique and in order")
 
+    # TEMPORARY, 2026-08-14: the 1st Bluepill's NODE_ID is 3 (motor stand-in),
+    # not its usual 0 (index in BLUEPILLS) - see MOTOR_STANDIN_BLUEPILL.
+    expected = {p: (MOTOR_STANDIN_NODE_ID if p == MOTOR_STANDIN_BLUEPILL else i)
+                for i, p in enumerate(BLUEPILLS)}
+
     seen = {}
-    for i, p in enumerate(BLUEPILLS):
+    for p in BLUEPILLS:
         header = PROJ / p / "Core" / "Inc" / "node_id.h"
         ok(f"{p}: node_id.h exists", header.exists())
         if not header.exists():
@@ -126,11 +184,12 @@ def test_node_ids() -> None:
             continue
 
         value = int(m.group(1))
-        check(f"{p}: NODE_ID", value, i)
+        check(f"{p}: NODE_ID", value, expected[p])
         ok(f"{p}: NODE_ID {value} not already used", value not in seen)
         seen[value] = p
 
-    check("all three node IDs present", sorted(seen), [0, 1, 2])
+    check("all node IDs present (0 vacated by the motor stand-in, 1/2/3 in use)",
+          sorted(seen), [1, 2, 3])
 
     # The Nucleo must NOT have one - it is the receiver, and a stray node_id.h
     # there would mean someone copied the wrong file set in.
@@ -196,7 +255,7 @@ def test_ioc() -> None:
 def test_main_wiring() -> None:
     print("-- main.c: firmware actually called")
 
-    for p in BLUEPILLS:
+    for p in V1_ONLY_BLUEPILLS:
         text = read(PROJ / p / "Core" / "Src" / "main.c")
         ok(f"{p}: includes can_node.h", '#include "can_node.h"' in text)
         ok(f"{p}: calls can_node_init", "can_node_init(&hcan);" in text)
@@ -214,10 +273,54 @@ def test_main_wiring() -> None:
         ok(f"{p}: SWD left enabled", "__HAL_AFIO_REMAP_SWJ_NOJTAG();" in msp)
         ok(f"{p}: SWJ_DISABLE removed", "__HAL_AFIO_REMAP_SWJ_DISABLE" not in msp)
 
+    for p in V2_BLUEPILLS + [MOTOR_STANDIN_BLUEPILL]:
+        text = read(PROJ / p / "Core" / "Src" / "main.c")
+        ok(f"{p}: includes can_node_v2.h", '#include "can_node_v2.h"' in text)
+        ok(f"{p}: calls can_node_v2_init", "can_node_v2_init(&hcan);" in text)
+        ok(f"{p}: calls can_node_v2_task", "can_node_v2_task();" in text)
+        # v1's can_node.c is still mirrored in but no longer called - a stale
+        # include or call here would mean the cutover was only half-done.
+        ok(f"{p}: v1 can_node.h not included", '#include "can_node.h"' not in text)
+        ok(f"{p}: v1 can_node_init not called", "can_node_init(&hcan);" not in text)
+        ok(f"{p}: v1 can_node_task not called", "can_node_task();" not in text)
+        ok(f"{p}: CAN init matches the .ioc",
+           "hcan.Init.Prescaler = 9;" in text
+           and "hcan.Init.TimeSeg2 = CAN_BS2_1TQ;" in text
+           and "hcan.Init.AutoBusOff = ENABLE;" in text)
+
+        for stale in ("CAN_Sender_Init", "CAN_Sender_Loop", "simulate_sensor"):
+            ok(f"{p}: old {stale} removed", stale not in text)
+
+        msp = read(PROJ / p / "Core" / "Src" / "stm32f1xx_hal_msp.c")
+        ok(f"{p}: SWD left enabled", "__HAL_AFIO_REMAP_SWJ_NOJTAG();" in msp)
+        ok(f"{p}: SWJ_DISABLE removed", "__HAL_AFIO_REMAP_SWJ_DISABLE" not in msp)
+
     text = read(PROJ / NUCLEO / "Core" / "Src" / "main.c")
-    ok("Nucleo: includes telemetry_hub.h", '#include "telemetry_hub.h"' in text)
-    ok("Nucleo: calls hub_init", "hub_init(&hcan1, &huart1, &huart2);" in text)
-    ok("Nucleo: calls hub_task", "hub_task();" in text)
+    ok("Nucleo: includes telemetry_hub_v2.h", '#include "telemetry_hub_v2.h"' in text)
+    ok("Nucleo: calls hub2_init", "hub2_init(&hcan1, &huart1, &huart2);" in text)
+    ok("Nucleo: calls hub2_task", "hub2_task();" in text)
+    # TEMPORARY, 2026-08-14: the 1st Bluepill is transmitting real CAN pages
+    # for node 3 (motor stand-in) during the v2 bench test, so the hub must
+    # not ALSO fabricate node 3 locally - both would write s_reasm[3] and
+    # interleave two epochs into one torn burst. Must be defined before the
+    # #include, or the header's #ifndef default (1, simulate) wins instead.
+    m = re.search(r"#define\s+HUB2_SIMULATE_NODE3\s+0\s*\n\s*#include \"telemetry_hub_v2\.h\"", text)
+    ok("Nucleo: HUB2_SIMULATE_NODE3 disabled before the v2 hub include "
+       "(motor stand-in is on the bus)", m is not None)
+    # v1's telemetry_hub.c is still mirrored in (untouched, per the "never
+    # modify v1 files" rule) but must be excluded from the build - both files
+    # define HAL_CAN_RxFifo0MsgPendingCallback as a strong symbol, so linking
+    # both in is a duplicate-symbol error, and main.c must not call the v1
+    # entry points either.
+    ok("Nucleo: v1 telemetry_hub.h not included",
+       '#include "telemetry_hub.h"' not in text)
+    ok("Nucleo: v1 hub_init not called",
+       "hub_init(&hcan1, &huart1, &huart2);" not in text)
+    ok("Nucleo: v1 hub_task not called", "hub_task();" not in text)
+    cproject = read(PROJ / NUCLEO / ".cproject")
+    ok("Nucleo: .cproject excludes v1 telemetry_hub.c from the build",
+       cproject.count('excluding="Core/Src/telemetry_hub.c"') >= 2)
+
     ok("Nucleo: AutoBusOff enabled", "hcan1.Init.AutoBusOff = ENABLE;" in text)
     ok("Nucleo: USART1 at 9600", "huart1.Init.BaudRate = 9600;" in text)
     for fn in ("MX_DMA_Init();", "MX_USART1_UART_Init();"):
@@ -234,7 +337,8 @@ def test_main_wiring() -> None:
     for handler in ("CAN1_RX0_IRQHandler", "USART1_IRQHandler", "DMA1_Channel4_IRQHandler"):
         ok(f"Nucleo: {handler} defined", f"void {handler}(void)" in it)
 
-    # The hub's RX callback lives in telemetry_hub.c; a duplicate in main.c or
+    # The hub's RX callback lives in telemetry_hub_v2.c (now the only one of
+    # the pair actually compiled in); a duplicate definition in main.c or
     # it.c would be a link error - better to catch it here.
     for f in ("main.c", "stm32l4xx_it.c"):
         body = read(PROJ / NUCLEO / "Core" / "Src" / f)

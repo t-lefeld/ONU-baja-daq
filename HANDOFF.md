@@ -1,8 +1,8 @@
 # Handoff — read this first
 
-Written 2026-08-12 for whoever (or whatever) picks this up next. Assume no
-memory of prior conversations. This file is the orientation; the other docs
-are the detail.
+Written 2026-08-12, updated 2026-08-14 for whoever (or whatever) picks this
+up next. Assume no memory of prior conversations. This file is the
+orientation; the other docs are the detail.
 
 ---
 
@@ -33,23 +33,54 @@ brake pressure, MLX90614 CVT temp, ODrive S1 motor controller.
 
 ## The single most important thing to understand
 
-**There are two parallel systems in this repo. Only one of them runs.**
+**There are three versions now: v1, v2, v3. v2 is wired into real projects as
+of 2026-08-14 but has never been flashed or run on the bench yet.**
 
-| | v1 | v2 |
-|---|---|---|
-| Status | **Working on real hardware**, verified end to end | Tested libraries, **runs nowhere** |
-| Channels | 9 placeholder (temp/humidity/pressure, batt/current/power, accel x/y/z) | 24 real (GPS, IMU, wheel speed, suspension, brake, CVT, motor) |
-| Nodes | 3 | 4 |
-| Frame | 42 bytes @ 2 Hz | 80 bytes @ 2 Hz |
-| Firmware | `can_node.c`, `telemetry_hub.c` | `can_node_v2.c` only — **`telemetry_hub_v2.c` does not exist** |
+| | v1 | v2 | v3 |
+|---|---|---|---|
+| Status | **Working on real hardware**, verified end to end | Wired into real CubeIDE projects, **not yet flashed/bench-tested** | Not started — real sensors on top of v2 |
+| Channels | 9 placeholder | 24, but still **simulated in firmware**, not from real sensors | 24, real sensor reads |
+| Nodes | 3 (all Bluepills) | 4 (Hub, Front, Rear, Motor — see board mapping below) | same as v2 |
+| Frame | 42 bytes @ 2 Hz | 80 bytes @ 2 Hz | 80 bytes @ 2 Hz |
+| What's flashed where | All 3 Bluepills + Hub | **2nd Bluepill = Front, 3rd Bluepill = Rear, Hub = Nucleo, 1st Bluepill = temporary Motor/E-CVT stand-in for the bench test.** | same boards as v2, minus the stand-in once the real ODrive replaces it |
 
-**No v2 byte has ever crossed a real wire.** The protocol, Python decoder,
-DBC, sensor drivers and E-CVT controller all pass tests in isolation, and are
-wired into nothing.
+**Board mapping for v2 (this was an open decision as of 08-12, settled 08-13,
+then extended 08-14):** in the *final* design, node 0 (Hub/GPS/IMU) and node 3
+(E-CVT/Motor) have no physical Bluepill — the hub originates both directly
+(real GPS/IMU/ODrive in v3). Only Front and Rear are permanent Bluepill
+roles.
 
-This is deliberate — the base was built first so integration happens against
-something stable. But do not describe v2 as "working," and do not let the
-green test board imply otherwise.
+**Temporary addition, 2026-08-14 — a 4th "board" for the v2 bench test only:**
+the 1st Bluepill (previously the idle spare) is flashed with `node_id.h` set
+to `NODE_ID 3` and now transmits real `tlm2_can_pack_pages()` bursts for the
+Motor node, so the hub's reassembler gets exercised by an actual 4th CAN
+transmitter instead of leaving node 3 hub-internal during the test. This is
+**not** what node 3 looks like in the real system — the ODrive doesn't speak
+this protocol at all, it speaks CAN Simple, addressed by `axis_node_id`, not
+`TLM2_CAN_ID_FOR(3, page)`. Swapping in the real ODrive later means removing
+this stand-in board from the bus entirely, not reflashing it to "the real
+thing" — see `can_node_v2.h`'s header comment for the full reasoning. The
+hub-side switch is `HUB2_SIMULATE_NODE3` in `telemetry_hub_v2.h`, set to `0`
+in the Nucleo project's `main.c` right now specifically because this stand-in
+is on the bus — **if you ever pull this board off the bus without also
+flipping that back to `1` (or unset), node 3 goes stale/nothing shows up,
+not "back to simulated."** The 1st Bluepill is not a working v1 fallback
+spare while wearing this hat — see the note in its `node_id.h`.
+
+**What "v2 wired in" actually means right now:** `can_node_v2.c`/`.h` and
+`telemetry_hub_v2.c`/`.h` (all pre-existing, host-tested library code) are now
+copied into the 2nd Bluepill, 3rd Bluepill, and Nucleo hub CubeIDE projects,
+and each project's `main.c` calls the v2 init/task functions instead of v1's.
+`telemetry_hub.c` is excluded from the hub project's build (both files define
+a strong `HAL_CAN_RxFifo0MsgPendingCallback`, so linking both is a link
+error). **None of this has been flashed to hardware or bench-tested yet** —
+that's the next real milestone, and per the "verify, don't assert" rule nothing
+above should be taken as proof it works until it's been run.
+
+v1 files are untouched throughout — `protocol/telemetry_proto.{h,c}`,
+`can_node.c`, `telemetry_hub.c`, and their mirrored copies in every project
+are byte-identical to before. Reflashing any board back to v1 is always just
+"go back to what main.c called before."
 
 ---
 
@@ -81,9 +112,11 @@ green test board imply otherwise.
 protocol/     wire formats. telemetry_proto.* = v1 (live).
               telemetry_proto_v2.* = v2 (tested, unused). Both DBCs.
 firmware/
-  bluepill_node/   can_node.c (v1, live), can_node_v2.c (v2, tested)
-  nucleo_hub/      telemetry_hub.c (v1, live), lora_e22.c, sd_log.c,
-                   sd_spi.c, fat32.c. telemetry_hub_v2.h exists, .c DOES NOT
+  bluepill_node/   can_node.c (v1), can_node_v2.c (v2 — now wired into the
+                   2nd/3rd Bluepill projects' main.c, not yet bench-tested)
+  nucleo_hub/      telemetry_hub.c (v1), lora_e22.c, sd_log.c, sd_spi.c,
+                   fat32.c, telemetry_hub_v2.c (v2 — now wired into the
+                   Nucleo project's main.c, not yet bench-tested)
   sensors/         7 real-sensor drivers, all TODO-marked, none wired in
   control/         E-CVT PI controller + IMU hill feedforward, host-tested
   projects/        the 4 CubeIDE/PlatformIO projects (vendored HAL etc.)
@@ -159,29 +192,64 @@ that goes red on a normal Windows box trains everyone to ignore red.
 
 ## Open decisions needing Tate, not code
 
-1. **How node 3 (E-CVT/Motor) gets populated.** It has no physical board —
-   the hub both receives ODrive frames and originates that node's record.
-   Agreed approach: hub does nodes 0 and 3, two Bluepills do Front and Rear,
-   third Bluepill is a spare. Not yet implemented.
+1. ~~How node 3 (E-CVT/Motor) gets populated.~~ **Settled and implemented
+   2026-08-14**: the hub originates nodes 0 and 3 itself (simulated for now),
+   Front and Rear are the two real Bluepills, the 3rd (1st-numbered) Bluepill
+   is the spare.
 2. **ODrive `axis_node_id`** must not collide with the `0x200` block v2 uses
-   for node pages.
-3. Whether to push to GitHub before or after the remaining cleanup.
+   for node pages. Still open — `HUB2_ODRIVE_AXIS_NODE_ID` defaults to 0 in
+   `telemetry_hub_v2.h`; confirm against whatever you actually set on the
+   ODrive with `odrivetool` before `HUB2_USE_REAL_ODRIVE` ever gets flipped on.
+3. Whether to push to GitHub before or after the remaining cleanup — repo now
+   has 4 commits locally (see below), still not pushed anywhere.
 
 ---
 
+## A repo-corruption risk found and worked around, 2026-08-14
+
+This repo lives inside OneDrive, and the "OneDrive syncing `.git` mid-op can
+corrupt things" warning in `NEXT_STEPS.md` turned out to be real, just not in
+the way expected: a sandboxed agent working on this repo could create git
+lock files (`.git/index.lock`, `.git/HEAD.lock`, `.git/objects/*.lock`) but
+**could not delete them afterward** — not a git problem, a general inability
+to delete anything on this OneDrive mount from that environment. Every git
+write left a stray lock behind that blocked the next one, and only Tate,
+working locally, could clear it. One commit went through per "session" before
+needing a manual unstick. If this happens again: close anything that might
+hold a git handle (IDE, GitHub Desktop, a stray terminal), then delete the
+`*.lock` files under `.git/` by hand. This is a good argument for finishing
+the move off OneDrive (see NEXT_STEPS.md's "About OneDrive" section) sooner
+rather than later.
+
 ## Immediate next steps, in order
 
-1. **Commit to git.** Weeks of work exist on one disk with zero commits.
-   `.gitignore` already excludes `pc_app/.browser-profile/` (1044 files
-   including Chromium `Login Data` and `Vpn Tokens` — app-generated, but it
-   must not be pushed). Verify with
-   `git ls-files --cached | findstr browser-profile` → must print nothing.
-2. **Write `telemetry_hub_v2.c`.** The `.h` exists and defines the contract.
-   Biggest blocker for v2 on hardware.
-3. **Docs consistency sweep.** Several files still describe a four-dashboard
-   gallery; it is now one tabbed app (`simulation/dashboards/index.html`).
-4. Bench stages 3 (SD) and 4 (fault recovery) — hardware, needs Tate.
-5. Tate offered to send schematics for a wiring audit against `PINOUT.md`.
+1. **Bench-test v2.** This is the real milestone, not yet done: flash all
+   four boards — 2nd Bluepill (Front), 3rd Bluepill (Rear), 1st Bluepill
+   (temporary Motor/E-CVT stand-in, `NODE_ID 3`), and the Nucleo hub — with
+   their now-v2 `main.c`. There is no v1 spare on the bus during this test.
+   Run `python run.py --proto v2 --port COM9` from `pc_app/` and confirm all
+   24 channels show up live, sourced from real hardware rather than the
+   Python simulator — including the Motor node, which should now be coming
+   from the 1st Bluepill's real CAN frames, not the hub's local simulation
+   (`HUB2_SIMULATE_NODE3` is `0` for this test). `tools/run_all_tests.py` is
+   green (15/15) at the library level, but that only proves the code is
+   internally consistent — it says nothing about the real CAN bus, the real
+   LoRa link, or real mailbox contention with 4 transmitters on one bus.
+2. **Measure real LoRa throughput** once v2 is flashed. Everything about the
+   80-byte frame fitting at 2 Hz rests on an unmeasured ~200 B/s assumption —
+   see `protocol/V2_DESIGN_NOTES.md` for the ranked fallbacks if it doesn't.
+3. **Commit and push.** 4 commits exist locally now (baseline, hub v2, the
+   sensor-header/CubeMX v3 start, and the .gitattributes line-ending fix);
+   still nothing on GitHub. `.gitignore` already excludes
+   `pc_app/.browser-profile/` — verify with
+   `git ls-files --cached | findstr browser-profile` → must print nothing —
+   before pushing.
+4. Bench stages 3 (SD) and 4 (fault recovery) on v1 — hardware, needs Tate,
+   still not done regardless of the v2 work above.
+5. Once v2 is proven on the bench, v3 starts: wire real sensors into
+   `can_node_v2.c`'s `sim_read_channels()` and `telemetry_hub_v2.c`'s
+   `hub2_originate_node0/3()` one at a time, per `firmware/NODE_INTEGRATION_V2.md`.
+6. Tate offered to send schematics for a wiring audit against `PINOUT.md`.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "port": "COM9",
-  "baud": 9600,
+  "baud": 115200,
   "http_port": 8765,
   "host": "127.0.0.1",
   "csv": false,

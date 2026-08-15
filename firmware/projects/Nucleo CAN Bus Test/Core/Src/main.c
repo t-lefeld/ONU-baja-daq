@@ -21,7 +21,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "telemetry_hub.h"
+/* v2 bench test, 2026-08-14: the 1st Bluepill is temporarily standing in for
+   node 3 (E-CVT/Motor) on the real CAN bus (node_id.h there is set to 3), so
+   the hub must NOT also fabricate node 3 locally - see HUB2_SIMULATE_NODE3's
+   comment in telemetry_hub_v2.h. Must be defined before the #include so the
+   header's #ifndef default (1) doesn't win. Set back to unset (or 1) once
+   that stand-in board is off the bus and nothing real has replaced it. */
+#define HUB2_SIMULATE_NODE3 0
+#include "telemetry_hub_v2.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -102,7 +109,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /* huart1 -> E22 LoRa module, huart2 -> ST-Link virtual COM port */
-  hub_init(&hcan1, &huart1, &huart2);
+  hub2_init(&hcan1, &huart1, &huart2);
 
   /* USER CODE END 2 */
 
@@ -113,7 +120,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    hub_task();
+    hub2_task();
   }
   /* USER CODE END 3 */
 }

@@ -1,5 +1,12 @@
 # Run it, then push to GitHub
 
+**Update 2026-08-14:** v2 is now wired into real firmware — the 2nd Bluepill
+(Front), 3rd Bluepill (Rear), and Nucleo hub projects have `main.c` pointed at
+`can_node_v2`/`hub2` instead of v1. The 1st Bluepill stays on v1 as a spare.
+None of this has been flashed or bench-tested yet — see HANDOFF.md's
+"Immediate next steps" for that. Also: the git lock file, if you hit it again,
+is a OneDrive quirk, not corruption — see the new section in HANDOFF.md.
+
 Two parts. Part 1 takes about ten minutes and needs no hardware. Part 2 is the
 GitHub push to your existing repo.
 
