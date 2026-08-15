@@ -1,0 +1,14 @@
+# Normalize line endings so vendor/generated files stop showing as
+# 100% modified on Windows checkouts. Everything text-like is LF in
+# the repo; git converts to CRLF on checkout only for files that
+# genuinely need it (none right now).
+* text=auto eol=lf
+
+# Binary / generated — never touch line endings
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.pma binary
+*.db binary
+*.tlm binary
