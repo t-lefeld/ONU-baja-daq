@@ -67,6 +67,23 @@ flipping that back to `1` (or unset), node 3 goes stale/nothing shows up,
 not "back to simulated."** The 1st Bluepill is not a working v1 fallback
 spare while wearing this hat — see the note in its `node_id.h`.
 
+**Two separate build systems, two separate exclusion lists — this bit us
+2026-08-14.** Every project has both a CubeIDE `.cproject` and a
+`platformio.ini`, and PlatformIO does **not** read `.cproject` at all — it
+has its own `build_src_filter` that compiles everything under `Core/Src/` on
+its own. Excluding a stale v1 file from one build system does nothing for
+the other. Two exclusions were needed and are now both in place: the
+Nucleo's `telemetry_hub.c` (duplicate `HAL_CAN_RxFifo0MsgPendingCallback` at
+link time) and the 1st Bluepill's `can_node.c` (v1's `can_node.h` hard-errors
+at compile time for `NODE_ID 3`, which is outside v1's valid 0-2 range, even
+though nothing calls into that file). `tools/test_repo.py` now checks both
+`platformio.ini` files for these exclusions specifically so this can't drift
+back silently. **None of this has been compile-verified against the real ARM
+toolchain from this end** — there's no `arm-none-eabi-gcc`/PlatformIO
+available in the environment doing this work, only the host-side C tests
+(hal_shim-mocked, not real HAL). The PlatformIO build output is the first
+real compile check any of this has had — keep pasting errors if more show up.
+
 **What "v2 wired in" actually means right now:** `can_node_v2.c`/`.h` and
 `telemetry_hub_v2.c`/`.h` (all pre-existing, host-tested library code) are now
 copied into the 2nd Bluepill, 3rd Bluepill, and Nucleo hub CubeIDE projects,

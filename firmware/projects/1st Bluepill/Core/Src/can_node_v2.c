@@ -198,8 +198,10 @@ static void sim_read_channels(int32_t *raw)
     float speed          = maxf0(sim_speed_mph(t));
     float lon_g          = sim_lon_accel_g(t);
     float lat_g          = sim_lat_accel_g(t);
-    float corner_offset  = lat_g * 1.5f;   /* corner_offset in vehicle_data.py */
-    float lean           = lat_g * 8.0f;   /* lean in vehicle_data.py */
+    /* corner_offset/lean are Front and Rear-only (suspension lean into a
+       corner) - declared inside those branches below now, not here, so the
+       Motor stand-in build doesn't warn about two unused variables every
+       compile. */
 
 #if NODE_ID == 3
     /* Motor/E-CVT bench stand-in (see can_node_v2.h's header comment) -
@@ -227,6 +229,8 @@ static void sim_read_channels(int32_t *raw)
     /* Front - mirrors vehicle_data.py's front_vals channel-for-channel:
        [0] wheel_speed_fl [1] wheel_speed_fr [2] suspension_fl
        [3] suspension_fr [4] brake_pressure_f */
+    float corner_offset  = lat_g * 1.5f;   /* corner_offset in vehicle_data.py */
+    float lean           = lat_g * 8.0f;   /* lean in vehicle_data.py */
 
     /* TODO: replace with wheel_encoder_update(&enc_fl) / wheel_encoder_update(&enc_fr)
        (firmware/sensors/wheel_encoder.h) - one instance per wheel, each
@@ -257,6 +261,8 @@ static void sim_read_channels(int32_t *raw)
     /* Rear - mirrors vehicle_data.py's rear_vals channel-for-channel:
        [0] wheel_speed_rl [1] wheel_speed_rr [2] suspension_rl
        [3] suspension_rr [4] cvt_temp */
+    float corner_offset  = lat_g * 1.5f;   /* corner_offset in vehicle_data.py */
+    float lean           = lat_g * 8.0f;   /* lean in vehicle_data.py */
 
     /* TODO: replace with wheel_encoder_update(&enc_rl) / wheel_encoder_update(&enc_rr)
        (firmware/sensors/wheel_encoder.h), same pattern as the Front corners. */

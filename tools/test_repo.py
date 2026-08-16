@@ -273,6 +273,19 @@ def test_main_wiring() -> None:
         ok(f"{p}: SWD left enabled", "__HAL_AFIO_REMAP_SWJ_NOJTAG();" in msp)
         ok(f"{p}: SWJ_DISABLE removed", "__HAL_AFIO_REMAP_SWJ_DISABLE" not in msp)
 
+    # v1's can_node.c hard-errors at compile time if NODE_ID is outside
+    # 0..TLM_NODE_COUNT-1 (0-2) - true regardless of whether can_node.c's
+    # functions are ever called, since PlatformIO's build_src_filter compiles
+    # every file under Core/Src/ on its own. The motor stand-in's NODE_ID (3)
+    # is out of that range, so its platformio.ini MUST exclude can_node.c or
+    # the PlatformIO build fails even though the CubeIDE build (which doesn't
+    # need this exclusion - can_node.c has no colliding symbols, it's just
+    # dead code there) is fine. This bit Tate on 2026-08-14 - see HANDOFF.md.
+    pio = read(PROJ / MOTOR_STANDIN_BLUEPILL / "platformio.ini")
+    ok(f"{MOTOR_STANDIN_BLUEPILL}: platformio.ini excludes v1 can_node.c "
+       f"(NODE_ID {MOTOR_STANDIN_NODE_ID} is out of v1's valid range)",
+       "-<Core/Src/can_node.c>" in pio)
+
     for p in V2_BLUEPILLS + [MOTOR_STANDIN_BLUEPILL]:
         text = read(PROJ / p / "Core" / "Src" / "main.c")
         ok(f"{p}: includes can_node_v2.h", '#include "can_node_v2.h"' in text)
@@ -320,6 +333,15 @@ def test_main_wiring() -> None:
     cproject = read(PROJ / NUCLEO / ".cproject")
     ok("Nucleo: .cproject excludes v1 telemetry_hub.c from the build",
        cproject.count('excluding="Core/Src/telemetry_hub.c"') >= 2)
+
+    # PlatformIO is a SEPARATE build path from CubeIDE's .cproject - it has
+    # its own build_src_filter and does not read .cproject at all, so the
+    # same exclusion has to be repeated there or PlatformIO happily compiles
+    # (and links, and fails) both telemetry_hub.c and telemetry_hub_v2.c.
+    # This bit Tate on 2026-08-14 - see HANDOFF.md.
+    pio = read(PROJ / NUCLEO / "platformio.ini")
+    ok("Nucleo: platformio.ini excludes v1 telemetry_hub.c from the build",
+       "-<Core/Src/telemetry_hub.c>" in pio)
 
     ok("Nucleo: AutoBusOff enabled", "hcan1.Init.AutoBusOff = ENABLE;" in text)
     ok("Nucleo: USART1 at 9600", "huart1.Init.BaudRate = 9600;" in text)
