@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 .venv/
 venv/
 env/
@@ -10,6 +11,7 @@ env/
 pc_app/logs/
 *.csv
 *.tlm
+*.db
 
 # Browser profile created by `run.py --web` when it launches the dashboard in
 # Edge/Chrome app-mode. ~1000 files of cache and extension data, and it

@@ -512,3 +512,40 @@ sensors are wired in.
   how to confirm the pipeline is carrying data faithfully (applies now, even
   with the built-in simulator), and, later, how to confirm a given sensor
   reading is a genuine live measurement rather than stale or miswired.
+
+## Mechanical / hardware notes and early design docs
+
+This repo absorbed a second, earlier GitHub history on 2026-08-16 that
+carried hardware and mechanical documentation this repo didn't otherwise
+have — kept because it's real reference material, even though its firmware
+and dashboard proposals are superseded by everything described above.
+
+- **`nodes/`** — per-node hardware notes (Front, Rear, eCVT, Firewall):
+  sensor part numbers (Littelfuse 55075 wheel encoders, Bourns
+  53AAA-B28-B15L bellcrank pots, Anfield T200/T201 pressure transducers,
+  MLX90614 CVT belt temp), connector types, and mechanical context. Cross-
+  check part numbers here against `V3_CUBEMX_AND_SENSOR_INTEGRATION_GUIDE.md`
+  before trusting either in isolation — they were written independently.
+- **`can/`** — CAN bus topology notes and a `baja.dbc`. This repo's actual
+  running DBCs are `protocol/telemetry.dbc` (v1) and
+  `protocol/telemetry_v2.dbc` (v2) — treat `can/baja.dbc` as historical/
+  planning reference, not the wire format actually on the bus today.
+- **`hardware/`** — PCB, enclosure (PAHT-CF, IP66, Bambu P1S), and Deutsch
+  DT/DTM connector notes for the physical build.
+- **`suspension/`** — bellcrank travel-sensor CAD and linkage notes.
+- **`docs/architecture.md`, `docs/build-log/`** — early system architecture
+  writeup and a dated log of build decisions (CAN bus architecture, LoRa
+  telemetry, node platform choice, a web-dashboard pivot, and receiver/scope
+  corrections). Historical — some of it (the web-dashboard pivot log in
+  particular) describes a FastAPI/SQLite browser dashboard that was dropped
+  in this merge in favor of `pc_app/`'s native Qt window (see "Ground
+  station" above) — the log entry itself is left as-is since it's a record
+  of a decision made at the time, not a claim about what's running now.
+- **`scripts/can_decode.py`** — a standalone `cantools`-based CAN log
+  decoder, independent of `pc_app/` and `tools/`.
+- **`LICENSE`** — MIT.
+
+**Not carried over:** the old `telemetry/dashboard/` (a browser dashboard +
+FastAPI/SQLite persistent-logging backend) was dropped entirely — `pc_app/`
+is this repo's one real dashboard going forward, per the "Ground station"
+section above.
