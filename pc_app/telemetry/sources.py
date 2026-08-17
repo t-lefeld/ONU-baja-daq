@@ -401,10 +401,24 @@ class ReplaySource(FrameSource):
         self.detail = str(self.path)
         self.speed = speed
         self.loop = loop
-        self.parser = active().StreamParser()
 
         if not self.path.exists():
             raise FileNotFoundError(self.path)
+
+        # StreamParser's default max_buffer (4096 bytes) is sized for a LIVE
+        # link, where feed() is called repeatedly with small chunks as bytes
+        # arrive and a bounded buffer is a deliberate memory-safety choice.
+        # ReplaySource instead reads the WHOLE file and hands it to feed() in
+        # one call (below) - with the default cap, any recording longer than
+        # ~4096 bytes (about 25s at v2's 160 B/s) got silently truncated from
+        # the FRONT before a single frame was even decoded, so a multi-minute
+        # replay only ever played its last few seconds. bytes_discarded (see
+        # stats() below) would have caught this if anyone was watching it,
+        # but nothing surfaces that counter loudly. Since the whole file is
+        # already in memory by the time feed() runs, there is no reason for
+        # the parser's own buffer to be any smaller than the file.
+        file_size = self.path.stat().st_size
+        self.parser = active().StreamParser(max_buffer=file_size + 4096)
 
     async def frames(self) -> AsyncIterator[Frame]:
         while True:

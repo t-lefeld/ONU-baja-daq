@@ -33,16 +33,39 @@ brake pressure, MLX90614 CVT temp, ODrive S1 motor controller.
 
 ## The single most important thing to understand
 
-**There are three versions now: v1, v2, v3. v2 is wired into real projects as
-of 2026-08-14 but has never been flashed or run on the bench yet.**
+**There are three versions now: v1, v2, v3. v2 is fully bench-verified on
+real hardware as of 2026-08-16 — end-to-end data flow, SD logging, and fault
+recovery (node drop/reconnect, full bus drop/reconnect) all confirmed working.
+v3 (real sensors) is in progress as of 2026-08-16 — CubeMX pin-out is done for
+all three boards (Front, Rear, Hub), but no sensor driver has been wired into
+`can_node_v2.c`/`telemetry_hub_v2.c` yet, and none of it has been physically
+verified against real sensors. See `V3_BRINGUP_CHECKLIST.md` for exact status
+per sensor.**
 
 | | v1 | v2 | v3 |
 |---|---|---|---|
-| Status | **Working on real hardware**, verified end to end | Wired into real CubeIDE projects, **not yet flashed/bench-tested** | Not started — real sensors on top of v2 |
-| Channels | 9 placeholder | 24, but still **simulated in firmware**, not from real sensors | 24, real sensor reads |
+| Status | **Working on real hardware**, verified end to end | **Fully bench-verified on real hardware** — live data, SD logging, fault recovery all confirmed | **In progress** — CubeMX pin-out done on all 3 boards; drivers not wired in, nothing physically verified yet |
+| Channels | 9 placeholder | 24, but still **simulated in firmware**, not from real sensors | 24, real sensor reads (once driver wiring + verification catches up to the pin-out) |
 | Nodes | 3 (all Bluepills) | 4 (Hub, Front, Rear, Motor — see board mapping below) | same as v2 |
 | Frame | 42 bytes @ 2 Hz | 80 bytes @ 2 Hz | 80 bytes @ 2 Hz |
 | What's flashed where | All 3 Bluepills + Hub | **2nd Bluepill = Front, 3rd Bluepill = Rear, Hub = Nucleo, 1st Bluepill = temporary Motor/E-CVT stand-in for the bench test.** | same boards as v2, minus the stand-in once the real ODrive replaces it |
+
+**v3 CubeMX pin-out, done 2026-08-16 (see `V3_CUBEMX_AND_SENSOR_INTEGRATION_GUIDE.md`
+for the canonical pinout and `V3_BRINGUP_CHECKLIST.md` for the per-sensor
+checklist):** Front (2nd Bluepill) has wheel encoders on PA0/PA1 (EXTI,
+falling edge, pull-up), suspension pots on PA4/PA5 (ADC1), and both brake
+pressure transducers on PA6/PA7 (ADC1). Rear (3rd Bluepill) has the same
+encoder/suspension pins plus the CVT thermistor on I2C1 PB6/PB7 — **this
+assumes the PCB trace fix from PB8 to PB6 has actually been done; CubeMX
+config and physical board traces are independent, so double check before
+trusting this pin config.** Hub (Nucleo) has GPS on USART3 PC4/PC5 (9600
+baud, RX interrupt) and the IMU on I2C1 PB8/PB9 + INT on PB1 (EXTI, falling
+edge, pull-up) + RST on PB2 (GPIO output) — **these Hub pins are still
+suggestions, no PCB has been shared for that board.** All three Bluepills'
+ADC clocks were fixed to a valid 12MHz (PLLMUL stays X9 for 72MHz system
+clock, ADC Prescaler set to /6 — never use CubeMX's "Resolve Clock Issues"
+auto-solver here, it drops the whole system clock to fix the ADC alone, see
+the mistake below). All 15 test suites pass after each board's regeneration.
 
 **Board mapping for v2 (this was an open decision as of 08-12, settled 08-13,
 then extended 08-14):** in the *final* design, node 0 (Hub/GPS/IMU) and node 3
@@ -61,11 +84,14 @@ this protocol at all, it speaks CAN Simple, addressed by `axis_node_id`, not
 this stand-in board from the bus entirely, not reflashing it to "the real
 thing" — see `can_node_v2.h`'s header comment for the full reasoning. The
 hub-side switch is `HUB2_SIMULATE_NODE3` in `telemetry_hub_v2.h`, set to `0`
-in the Nucleo project's `main.c` right now specifically because this stand-in
-is on the bus — **if you ever pull this board off the bus without also
-flipping that back to `1` (or unset), node 3 goes stale/nothing shows up,
-not "back to simulated."** The 1st Bluepill is not a working v1 fallback
-spare while wearing this hat — see the note in its `node_id.h`.
+via a compiler `-D` flag (both `platformio.ini`'s `build_flags` and the
+CubeIDE `.cproject`'s preprocessor symbols — **not** a `#define` in `main.c`,
+see the "translation unit" mistake below) right now specifically because this
+stand-in is on the bus — **if you ever pull this board off the bus without
+also flipping that back to `1` (or removing the `-D`), node 3 goes
+stale/nothing shows up, not "back to simulated."** The 1st Bluepill is not a
+working v1 fallback spare while wearing this hat — see the note in its
+`node_id.h`.
 
 **Two separate build systems, two separate exclusion lists — this bit us
 2026-08-14.** Every project has both a CubeIDE `.cproject` and a
@@ -187,6 +213,58 @@ that goes red on a normal Windows box trains everyone to ignore red.
   confirms the check would actually fail if they diverged.
 - **Three parallel subagents all died** (session limit / API error). One left
   `telemetry_hub_v2.c` unwritten. Run agents one at a time here.
+- **A `#define` in one `.c` file is invisible to another's `#include` of the
+  same header — obvious in hindsight, expensive on the bench.**
+  `HUB2_SIMULATE_NODE3 0` was originally placed as a `#define` in the Nucleo
+  project's `main.c`, right before `#include "telemetry_hub_v2.h"`, intending
+  to override the header's `#ifndef` default (1). It compiled fine and looked
+  correct on inspection. It did nothing. `main.c` and `telemetry_hub_v2.c` are
+  separate translation units — each is preprocessed independently, so
+  `telemetry_hub_v2.c`'s own `#include` of the same header never saw main.c's
+  `#define`, and the `#if HUB2_SIMULATE_NODE3` check that actually matters
+  (in `telemetry_hub_v2.c`) always evaluated the header's default instead.
+  Burned an entire Stage 4 bench session: the E-CVT stand-in node never went
+  stale no matter how many times the board was rebuilt, reflashed, or
+  power-cycled, because the hub was still fabricating it locally the whole
+  time. Fixed by moving the override to a compiler `-D` flag (visible to
+  every translation unit) in both `platformio.ini` and the CubeIDE
+  `.cproject`, and `tools/test_repo.py` now checks for the flag in both build
+  files instead of the old (silently-wrong) main.c pattern. **General rule:
+  a compile-time value one file needs to hand to another file's `#if` check
+  belongs in a build flag, not a `#define` before an `#include`.**
+- **A one-time boot-banner print is un-catchable by hand.** Tried to have
+  Tate visually confirm a compiled-in macro value via a debug line that only
+  printed once, immediately at power-on. A human physically unplugging,
+  replugging, and reopening a serial monitor cannot win that race — the
+  board reaches the print within milliseconds of power stabilizing. Moved the
+  value onto the periodic (500ms) debug line instead, which is always on
+  screen with no timing dependency. If a debug value needs eyeballing on real
+  hardware, put it somewhere that repeats, not somewhere that fires once.
+- **CubeMX's "Resolve Clock Issues" auto-solver fixes the one thing you
+  flagged by breaking everything else.** Enabling ADC1 on the Bluepills
+  (v3 pin-out, 2026-08-16) triggers an out-of-range warning because the
+  default `/2` ADC prescaler gives 36MHz against a 14MHz hardware limit.
+  Clicking "Yes" on the auto-solver's "run automatic clock issues solver?"
+  prompt dropped `PLLMUL` from `X9` to `X2`, taking the whole system clock
+  from 72MHz to 16MHz — which would have silently broken the CAN bit-timing
+  (`CAN.Prescaler=9` was computed for 72MHz) along with every other
+  peripheral's timing, not just fixed the ADC. Always click "No", then fix
+  only the ADC Prescaler by hand (`/6` gives a valid 12MHz), leaving
+  `PLLMUL` alone.
+- **CubeMX doesn't always default I2C to the pin pair you'd expect, even
+  when the "obvious" one is free.** On the Hub's L476 (unlike the
+  F103 Bluepills, which have a strict PB6+PB7-or-PB8+PB9 remap pairing),
+  SCL and SDA are independent per-pin alternate functions — SCL can be
+  PA9/PB6/PB8, SDA can be PA10/PB7/PB9, and CubeMX will happily pick any
+  valid combination, not necessarily the "matching numbered" one. Enabling
+  I2C1 here auto-picked PB8 (SCL) + PB7 (SDA) even though PB9 was free and
+  is what the docs specify — both are electrically valid, but PB7 is a
+  silent mismatch against `V3_CUBEMX_AND_SENSOR_INTEGRATION_GUIDE.md`.
+  Caught by checking the generated `.ioc` after generation, not by trusting
+  the pinout diagram at a glance. Fixed by manually reassigning SDA to PB9.
+  **General rule: after any auto-pin-assignment on a chip with independent
+  (non-paired) alternate functions, grep the generated `.ioc` for the exact
+  pins the docs specify — don't assume CubeMX picked the "obvious" one.**
 
 ---
 
@@ -283,3 +361,28 @@ that turned out to rest on untested code. When something is a guess, say so.
 
 He is not a professional software engineer — explain *why* a thing matters,
 not just what to type.
+
+---
+
+## UI swap, 2026-08-16
+
+`pc_app/static/index.html` (the real-hardware dashboard) was replaced with a
+"Pit Wall" themed design (dark instrument panels, amber readouts, 7 tabs)
+built in a separate session and uploaded here. It plugs into the exact same
+`telemetry-core.js` backend contract, so no protocol changes were needed, but
+three real gaps had to be closed before it actually worked:
+
+1. It fetched Google Fonts over the network — removed. This dashboard has to
+   work in a pit lane with no wifi, same as everything else in `pc_app/`.
+   `tools/test_repo.py` already enforced "no external http(s) resources" from
+   the old design; it caught this immediately.
+2. Its "Logs" tab called `/api/logs`, which only ever existed on the
+   simulator's server (`simulation/server.py`) — ported into the real
+   `telemetry/server.py` too.
+3. Its "WIRE" header chip reads `frame_bytes`/`wire_format` off the
+   meta/status WebSocket messages, which `pump.py` never sent — added there.
+
+Also replaced a hardcoded "SYNTHETIC FEED — NOT LIVE HARDWARE" footer (copied
+from the simulator's copy of this same design, where it's always true) with
+one that reads the real source off `meta.source` — that label would have been
+actively wrong the moment real CAN data started flowing through it.

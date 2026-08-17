@@ -2,6 +2,16 @@
 
 This guide details the complete hardware pinout matrix, STM32CubeMX `.ioc` configuration instructions, sensor driver hooks, and physical calibration procedures for the **v3 Live Sensor Telemetry System**.
 
+**Corrected 2026-08-16 to match Tate's actual PCB ("Firewall PCB" schematic)
+for Front/Rear.** This file previously had the earlier suggested pins (from
+`firmware/PINOUT_V3_PLAN.md`'s first draft) for Front/Rear wheel encoders,
+suspension pots, and brake pressure — those have been replaced below with
+what's actually traced on the board. `firmware/PINOUT_V3_PLAN.md` still
+exists as the running log of that discovery (screenshots, the back-and-forth
+on the CVT I2C pin problem) but this file is now the single canonical pinout
+to build from. Hub pins are unchanged (no PCB for the Hub shared yet — these
+remain suggestions until you have one).
+
 ---
 
 ## 1. Conflict-Free Hardware Pinout Matrix
@@ -33,32 +43,41 @@ This guide details the complete hardware pinout matrix, STM32CubeMX `.ioc` confi
 
 ### B. Front Node: STM32F103C8 Bluepill (Node 1)
 
+**Pins below match the actual "Firewall PCB" schematic, not the original
+suggestion.** Front's connector is populated with two pressure transducers
+(primary + redundant/backup), not one.
+
 | Function / Sensor | Pin | Peripheral | Configuration in CubeMX | Notes / Wiring |
 | :--- | :---: | :---: | :--- | :--- |
 | **CAN Bus RX** | `PA11` | `CAN1` | CAN_RX, 500 kbit/s | Connects to CAN Transceiver RXD |
 | **CAN Bus TX** | `PA12` | `CAN1` | CAN_TX, 500 kbit/s | Connects to CAN Transceiver TXD |
 | **SWD Debug** | `PA13 / PA14`| `SYS_SWD` | Serial Wire | Do not reassign |
-| **Wheel Speed FL** | `PB0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor (open-collector) |
-| **Wheel Speed FR** | `PB1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be PB1** (avoids EXTI0 conflict) |
-| **Suspension Pot FL**| `PA0` | `ADC1_IN0` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **Suspension Pot FR**| `PA1` | `ADC1_IN1` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **Brake Pressure** | `PA2` | `ADC1_IN2` | 12-bit Single Conversion, 239.5 cycles sample | From resistor divider ($0.5\text{V}-4.5\text{V} \rightarrow 0.36\text{V}-3.28\text{V}$) |
+| **Wheel Speed FL** (`FWHEELSPDL`) | `PA0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor (open-collector) |
+| **Wheel Speed FR** (`FWHEELSPDR`) | `PA1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be a different pin number from FL** (avoids EXTI-line conflict) |
+| **Suspension Pot FL** (`FPOTL`) | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
+| **Suspension Pot FR** (`FPOTR`) | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
+| **Pressure Transducer 1 (primary)** (`PREST1`) | `PA6` | `ADC1_IN6` | 12-bit Single Conversion, 239.5 cycles sample | From resistor divider ($0.5\text{V}-4.5\text{V} \rightarrow 0.36\text{V}-3.28\text{V}$) — this is the value that goes on the wire as `brake_pressure_f` |
+| **Pressure Transducer 2 (redundant/backup)** (`PREST2`) | `PA7` | `ADC1_IN7` | 12-bit Single Conversion, 239.5 cycles sample | Same physical measurement as PREST1 — read for sanity-checking/failover, not sent as a separate channel |
 
 ---
 
 ### C. Rear Node: STM32F103C8 Bluepill (Node 2)
 
+**Pins below match the actual "Firewall PCB" schematic** (same board design
+as Front, populated with the CVT thermistor connector instead of pressure
+transducers).
+
 | Function / Sensor | Pin | Peripheral | Configuration in CubeMX | Notes / Wiring |
 | :--- | :---: | :---: | :--- | :--- |
 | **CAN Bus RX** | `PA11` | `CAN1` | CAN_RX, 500 kbit/s | Connects to CAN Transceiver RXD |
 | **CAN Bus TX** | `PA12` | `CAN1` | CAN_TX, 500 kbit/s | Connects to CAN Transceiver TXD |
 | **SWD Debug** | `PA13 / PA14`| `SYS_SWD` | Serial Wire | Do not reassign |
-| **Wheel Speed RL** | `PB0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor |
-| **Wheel Speed RR** | `PB1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be PB1** (avoids EXTI0 conflict) |
-| **Suspension Pot RL**| `PA0` | `ADC1_IN0` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **Suspension Pot RR**| `PA1` | `ADC1_IN1` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **CVT Temp MLX90614 SCL**| `PB6` | `I2C1` | I2C1_SCL (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A) |
-| **CVT Temp MLX90614 SDA**| `PB7` | `I2C1` | I2C1_SDA (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A) |
+| **Wheel Speed RL** | `PA0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor |
+| **Wheel Speed RR** | `PA1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be a different pin number from RL** |
+| **Suspension Pot RL** | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
+| **Suspension Pot RR** | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
+| **CVT Temp MLX90614 SCL** | `PB6` | `I2C1` | I2C1_SCL (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). **PCB currently traces this to PB8 — not a valid hardware I2C1 pin paired with PB7. Reroute this trace to PB6 before bring-up** (default I2C1 pins are PB6/PB7; no AFIO remap needed once fixed). |
+| **CVT Temp MLX90614 SDA** | `PB7` | `I2C1` | I2C1_SDA (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). Already correctly wired on the current PCB — only the SCL trace needs to move. |
 
 ---
 
@@ -97,10 +116,11 @@ Before trusting live data in the pit:
 * Measure tire rolling circumference ($C_m$, roll tire 1 revolution under load, measure distance in meters, e.g. $1.72\,\text{m}$).
 * Enter into `wheel_encoder_init(&enc, port, pin, N_teeth, C_m)`.
 
-### 3. Brake Pressure Transducer (Anfield T200/T201)
+### 3. Brake Pressure Transducers (Anfield T200/T201) — two, PREST1 + PREST2
 * Sensor outputs $0.5\,\text{V}-4.5\,\text{V}$ for $0-2000\,\text{psi}$.
 * Voltage divider ($R_1 = 10\,\text{k}\Omega, R_2 = 27\,\text{k}\Omega$) scales $4.5\,\text{V} \rightarrow 3.28\,\text{V}$.
-* Calibrate zero offset ($V_0 \approx 0.36\,\text{V}$ at 0 psi) and span ($K_{psi/V} \approx 685\,\text{psi/V}$).
+* Calibrate zero offset ($V_0 \approx 0.36\,\text{V}$ at 0 psi) and span ($K_{psi/V} \approx 685\,\text{psi/V}$) — **for both PREST1 and PREST2 separately**, they're two physical sensors and may not read identically even at the same pressure.
+* Decide before wiring in: does `brake_pressure_f` come from PREST1 alone with PREST2 read-but-unused (simplest), or averaged, or PREST2 as failover if PREST1 reads implausibly? Pick one and note it in `can_node_v2.c` where the channel is packed.
 
 ### 4. MLX90614 CVT Infrared Thermometer
 * Align sensor aiming directly at the CVT belt center with $20\,\text{mm}-40\,\text{mm}$ standoff.

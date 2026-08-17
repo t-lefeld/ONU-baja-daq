@@ -29,9 +29,9 @@ Each of these already exists as a complete CubeIDE project under
 | `2nd Bluepill` | Power node | 1 | 0x101 |
 | `3rd Bluepill` | Motion node | 2 | 0x102 |
 
-`4th Bluepill` is retired — leave it alone. It will fail to compile on
-purpose (a compile-time guard rejects `NODE_ID >= TLM_NODE_COUNT`), so you
-can't accidentally flash a stale 4-node image.
+`4th Bluepill` was deleted 2026-08-16 (it was retired when the system went
+from 4 CAN nodes to 3, then removed once v2 bench testing confirmed 3 nodes
+was correct) — there's no board left here to worry about.
 
 For each of the three active projects:
 

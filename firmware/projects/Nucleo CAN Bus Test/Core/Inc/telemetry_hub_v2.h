@@ -109,6 +109,18 @@ extern "C" {
  * leave it at 1 even once the REAL ODrive is wired in (HUB2_USE_REAL_ODRIVE),
  * since the hub originates node 3 from ODrive-decoded values locally too,
  * the same as it does for node 0 - see hub2_originate_node3()'s TODO.
+ *
+ * MUST be overridden with a compiler command-line flag (-D HUB2_SIMULATE_NODE3=0
+ * in platformio.ini's build_flags, or a Preprocessor "Defined symbol" in the
+ * CubeIDE project's C/C++ Build settings), NOT a #define placed in main.c.
+ * Found the hard way, 2026-08-16: main.c and telemetry_hub_v2.c are separate
+ * translation units, each preprocessed independently - telemetry_hub_v2.c
+ * does its own #include of this header, which never sees whatever main.c
+ * defined before its own #include, so a main.c-local #define here is
+ * silently a no-op for every #if HUB2_SIMULATE_NODE3 check in
+ * telemetry_hub_v2.c (which is the only place this macro is actually
+ * tested). A -D flag is visible to every translation unit, which is what
+ * this needs.
  */
 #ifndef HUB2_SIMULATE_NODE3
 #define HUB2_SIMULATE_NODE3 1

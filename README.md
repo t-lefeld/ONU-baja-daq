@@ -65,9 +65,10 @@ field_data/            real .TLM/.csv logs from actual test sessions go here
 tools/                 test suites and the log converter
 ```
 
-`firmware/projects/` holds copies of your five projects: the three active
-Bluepill nodes, the retired 4th Bluepill (kept but no longer synced or
-buildable — see `firmware/bluepill_node/INTEGRATION.md`), and the Nucleo hub.
+`firmware/projects/` holds copies of your four active projects: the three
+Bluepill nodes and the Nucleo hub. A 4th Bluepill project existed early on
+(the system was originally 4 CAN nodes) but was deleted 2026-08-16 once the
+system settled on 3 nodes and v2 bench testing confirmed it wasn't needed.
 The originals in `Documents\` are untouched.
 
 ## Ground station

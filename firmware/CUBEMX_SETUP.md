@@ -19,13 +19,13 @@ against your originals shows only the intended lines.
 Identical changes to all three (1st/2nd/3rd). Only `Core/Inc/node_id.h`
 differs between them, and that's a plain header CubeMX never touches.
 
-A 4th Bluepill project still exists on disk but is retired: the system was
-redesigned from 4 CAN nodes down to 3, and `firmware/bluepill_node/can_node.h`
-now `#error`s if `NODE_ID >= TLM_NODE_COUNT` (3), which `NODE_ID=3` triggers.
-Its checks below still apply if you ever wire it back in as a genuine 4th
-node - the CubeMX fixes themselves aren't protocol-count-dependent - but its
-`telemetry_proto.h`/`.c` copies were deliberately left unsynced, so treat it as
-a stale reference, not a project you can flash today.
+A 4th Bluepill project existed on disk when the system had 4 CAN nodes; once
+it was redesigned down to 3, `firmware/bluepill_node/can_node.h` started
+`#error`ing on `NODE_ID >= TLM_NODE_COUNT` (3) as a guardrail, and that
+project was deleted outright on 2026-08-16 once v2 bench testing confirmed
+the 3-node system works without it. The checks below still apply if you ever
+add a genuine 4th node in the future - the CubeMX fixes themselves aren't
+protocol-count-dependent.
 
 ### Check 1 — CAN bit timing (the important one)
 

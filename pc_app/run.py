@@ -31,6 +31,7 @@ import argparse
 import logging
 import socket
 import sys
+import tempfile
 import threading
 import webbrowser
 from datetime import datetime
@@ -334,7 +335,28 @@ def run_web(args, source: FrameSource, recorder: CsvRecorder | None, cfg: dict) 
             else:
                 log.info("No Edge or Chrome found - opening a browser tab instead")
 
-            profile_dir = paths.data_dir() / ".browser-profile"
+            # A FRESH temp directory every launch, not a persistent one in
+            # the repo's data dir - two problems that used to share one root
+            # cause. (1) A persistent Chromium profile keeps its own disk
+            # cache across restarts; the no-cache response headers added
+            # 2026-08-16 stop *future* staleness, but an entry fetched
+            # before that fix (e.g. the old broken js/telemetry-core.js
+            # 404) could still be served from the old profile's cache until
+            # something evicted it - "restart the app, still see the old
+            # bug" is confusing to debug blind. A one-shot temp profile
+            # means there is never anything to have gone stale. (2) The old
+            # persistent .browser-profile/ was the 1000+-file git-hygiene
+            # wart NEXT_STEPS.md carved a .gitignore exception around
+            # (Chromium's own Login Data/Vpn Tokens databases, empty but
+            # awkward to have in a public repo at all) - a temp dir is
+            # outside the repo entirely, so that carve-out is no longer
+            # load-bearing (left in .gitignore, harmless if unused).
+            # The OS is responsible for eventually cleaning temp dirs; not
+            # deleting it ourselves on exit is deliberate; the app window
+            # is often still open when this process exits (Ctrl+C leaves
+            # the window up), and deleting a profile out from under a
+            # running Chromium process is its own bug to debug.
+            profile_dir = Path(tempfile.mkdtemp(prefix="telemetry-app-"))
             threading.Timer(0.8, lambda: open_app_window(url, profile_dir)).start()
 
     try:

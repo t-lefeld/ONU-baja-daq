@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .protocols import active
+from .protocols import active, active_name
 from .proto import Frame
 from .recorder import CsvRecorder
 from .sources import FrameSource
@@ -71,6 +71,13 @@ class FramePump:
             "proto_version": active().PROTO_VERSION,
             "node_count": active().NODE_COUNT,
             "frame_period_ms": active().FRAME_PERIOD_MS,
+            # Visible proof a frame is real wire bytes, not raw floats handed
+            # straight to the browser - matches what simulation/server.py
+            # already sends (see its _meta()/_status()), so any dashboard
+            # that reads these two fields (the "WIRE" header chip) works
+            # identically against real hardware or the simulator.
+            "frame_bytes": active().FRAME_SIZE,
+            "wire_format": active_name(),
             "nodes": [
                 {
                     "node_id": n,
@@ -99,6 +106,8 @@ class FramePump:
             "csv": str(self.recorder.path) if self.recorder else None,
             "csv_rows": self.recorder.rows if self.recorder else 0,
             "error": self.stats.pump_error,
+            "frame_bytes": active().FRAME_SIZE,
+            "wire_format": active_name(),
             **self.source.stats(),
         }
         if extra:

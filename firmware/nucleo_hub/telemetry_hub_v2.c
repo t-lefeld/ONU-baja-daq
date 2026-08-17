@@ -304,14 +304,33 @@ static void debug_print_v2(const tlm2_frame_t *f)
         return;
     }
 
+    /* busoff/sd_errors/can_dropped added 2026-08-16 for the SD + fault-
+       recovery bench stages (PROJECT_STATUS.md Track A) - these counters
+       already existed in s_stats but were never printed anywhere, so there
+       was no way to actually see "did a bus-off get detected and recovered"
+       or "did an SD write fail" while running the test, only to infer it
+       from the node STALE flags (which only tell you about missing CAN
+       pages, not the hub's own SD/bus-health bookkeeping). */
+    /* SIM3=%d added 2026-08-16: a one-time boot-banner print of
+       HUB2_SIMULATE_NODE3 turned out to be useless for bench debugging -
+       it fires within ms of power-up, before a human can plug in a monitor
+       and see it, so a stale-build question ("is the chip really running
+       node3-not-simulated firmware?") could never actually get answered by
+       reading it. Printing it on every line instead means it's just always
+       sitting on screen - no timing race, no re-flash-and-catch-it dance. */
     char line[256];
     int len = snprintf(line, sizeof(line),
-                       "#%u t=%lu | N0[GPS/IMU]%s | N1[Front]%s | N2[Rear]%s | N3[Motor]%s\r\n",
+                       "#%u t=%lu | N0[GPS/IMU]%s | N1[Front]%s | N2[Rear]%s | N3[Motor]%s "
+                       "| busoff=%lu sd_err=%lu can_drop=%lu SIM3=%d\r\n",
                        (unsigned)f->seq, (unsigned long)f->t_ms,
                        (f->nodes[0].flags & TLM2_NF_STALE) ? "!" : "",
                        (f->nodes[1].flags & TLM2_NF_STALE) ? "!" : "",
                        (f->nodes[2].flags & TLM2_NF_STALE) ? "!" : "",
-                       (f->nodes[3].flags & TLM2_NF_STALE) ? "!" : "");
+                       (f->nodes[3].flags & TLM2_NF_STALE) ? "!" : "",
+                       (unsigned long)s_stats.busoff_events,
+                       (unsigned long)s_stats.sd_errors,
+                       (unsigned long)s_stats.can_dropped,
+                       (int)HUB2_SIMULATE_NODE3);
 
     HAL_UART_Transmit(s_debug, (uint8_t *)line, (uint16_t)len, 50u);
 }
@@ -401,8 +420,19 @@ void hub2_init(CAN_HandleTypeDef *hcan,
 #if HUB2_DEBUG_UART
     if (s_debug != NULL)
     {
-        const char *banner = "\r\n== telemetry hub v2 ready ==\r\n";
-        HAL_UART_Transmit(s_debug, (uint8_t *)banner, (uint16_t)strlen(banner), 100u);
+        /* HUB2_SIMULATE_NODE3 printed here, 2026-08-16: bench testing kept
+           showing the E-CVT stand-in as "always live" even with its power
+           unplugged, which only happens if the hub is still fabricating
+           node 3 locally - i.e. this macro is evaluating to 1 in whatever
+           binary is actually on the chip, regardless of what main.c's
+           source says. Rather than keep inferring that from node behavior,
+           print the compiled-in value straight into the boot banner so a
+           stale build is obvious the instant the board powers up. */
+        char banner[64];
+        int blen = snprintf(banner, sizeof(banner),
+                            "\r\n== telemetry hub v2 ready == SIMULATE_NODE3=%d\r\n",
+                            (int)HUB2_SIMULATE_NODE3);
+        HAL_UART_Transmit(s_debug, (uint8_t *)banner, (uint16_t)blen, 100u);
     }
 #endif
 }

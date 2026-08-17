@@ -1,314 +1,971 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
+<title>Pit Wall — Telemetry</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Telemetry</title>
-
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23111'/%3E%3Ctext x='32' y='44' font-size='34' font-family='ui-sans-serif,Arial' font-weight='700' text-anchor='middle' fill='white'%3ET%3C/text%3E%3C/svg%3E">
-
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23111'/%3E%3Ctext x='32' y='44' font-size='34' font-family='ui-sans-serif,Arial' font-weight='700' text-anchor='middle' fill='%23ffb300'%3ET%3C/text%3E%3C/svg%3E">
 <style>
-/* ==================================================================
-   Outdoor-readable dashboard.
+  /* No Google Fonts (or any other network dependency) - this runs in a pit
+     lane with no wifi, same reasoning as the rest of the ground station.
+     'Share Tech Mono'/'Oswald' were the original design's picks; system
+     monospace/condensed-sans stacks get close enough that the letter-spacing
+     and uppercase transforms already used throughout do most of the visual
+     work regardless of which exact typeface renders. */
+  /* One application, Pit Wall aesthetic throughout: dark instrument panels,
+     amber readouts, riveted bezels, a CRT scanline wash. Every tab is fed
+     from a single WebSocket and a single shared store, so switching tabs
+     never drops history or restarts the connection. */
+  :root{
+    --bg:#0b0d0c; --panel:#14181a; --panel2:#191e20; --bezel:#2a3033;
+    --text:#e8e4dc; --dim:#7d8580; --amber:#ffb300; --orange:#ff4b1f;
+    --ok:#3ecf6c; --bad:#ff4b4b; --warn:#ffa02b; --rivet:#3a4145; --cyan:#39d0c4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);
+    font-family:'Segoe UI','Arial Narrow',sans-serif;overflow-x:hidden;}
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:90;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0.10) 0 1px,transparent 1px 3px);
+    mix-blend-mode:multiply;opacity:0.5;
+  }
+  .mono{font-family:'Consolas','Courier New',monospace;}
 
-   Design rules, all deliberate:
+  /* ---- header ---- */
+  header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+    padding:13px 22px;background:linear-gradient(180deg,#181c1d,#101312);
+    border-bottom:3px solid var(--bezel);}
+  header h1{margin:0;font-size:20px;letter-spacing:3px;text-transform:uppercase;
+    font-weight:700;color:var(--amber);}
+  header h1 span{color:var(--dim);font-weight:400;font-size:13px;letter-spacing:2px;margin-left:10px;}
+  .stat-row{display:flex;gap:16px;font-family:'Consolas','Courier New',monospace;font-size:13px;color:var(--dim);
+    align-items:center;flex-wrap:wrap;}
+  .stat-row b{color:var(--text);font-weight:400;}
+  #linkDot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--bad);
+    margin-right:6px;box-shadow:0 0 6px var(--bad);}
+  #linkDot.up{background:var(--ok);box-shadow:0 0 6px var(--ok);}
+  #alarmChip{color:var(--bad);border:1px solid var(--bad);border-radius:3px;padding:2px 8px;
+    font-size:11px;letter-spacing:1px;display:none;}
+  #alarmChip.on{display:inline-block;animation:pulse 1.1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.45}}
 
-   1. Light background, near-black text. A dark theme looks great indoors
-      but under direct sun a phone/tablet backlight cannot out-shine
-      daylight - dark pixels just read as a dull gray smear. A light panel
-      pushed to max brightness stays legible; the classic "print a map on
-      paper, not on a black screen" problem.
+  /* ---- tab bar ---- */
+  nav{display:flex;gap:2px;padding:0 16px;background:#101314;border-bottom:2px solid var(--bezel);
+    overflow-x:auto;}
+  nav button{background:none;border:none;border-bottom:3px solid transparent;color:var(--dim);
+    font-family:'Segoe UI','Arial Narrow',sans-serif;font-size:13px;letter-spacing:2px;text-transform:uppercase;
+    padding:12px 17px;cursor:pointer;white-space:nowrap;}
+  nav button:hover{color:var(--text);}
+  nav button.on{color:var(--amber);border-bottom-color:var(--amber);}
+  nav button kbd{font-family:'Consolas','Courier New',monospace;font-size:9px;color:var(--rivet);
+    border:1px solid var(--bezel);border-radius:2px;padding:0 3px;margin-left:6px;}
 
-   2. Borders are thick (2-3px) and dark, never a 1px light-gray hairline.
-      Hairlines are the first thing to disappear in glare - if a divider
-      matters, it needs to survive being squinted at.
+  /* ---- toolbar ---- */
+  .toolbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:9px 22px;
+    background:#0e1112;border-bottom:1px solid var(--bezel);font-size:12px;color:var(--dim);}
+  .toolbar label{display:flex;align-items:center;gap:6px;letter-spacing:1px;text-transform:uppercase;
+    font-size:11px;cursor:pointer;}
+  .toolbar select{background:#1a1f21;color:var(--text);border:1px solid var(--bezel);border-radius:3px;
+    font-family:'Consolas','Courier New',monospace;font-size:11px;padding:3px 6px;}
+  .btn{background:#1a1f21;color:var(--text);border:1px solid var(--bezel);border-radius:3px;
+    padding:5px 12px;font-family:'Segoe UI','Arial Narrow',sans-serif;font-size:11px;letter-spacing:1.5px;
+    text-transform:uppercase;cursor:pointer;}
+  .btn:hover{border-color:var(--amber);color:var(--amber);}
+  .btn.hot{border-color:var(--orange);color:var(--orange);}
 
-   3. Status is never color-only. Every state has a bold text label
-      (LIVE / FAULT / OFFLINE) alongside its color, because saturation and
-      hue both wash out outdoors and some readers are colorblind regardless
-      of lighting.
+  main{padding:20px 22px 44px;}
+  .tab{display:none;} .tab.on{display:block;}
 
-   4. No translucency, no soft shadows, no gradients. All of those reduce
-      effective contrast, which is the one thing this screen cannot spend.
+  /* ---- panels (Live) ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;}
+  .panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:2px solid var(--bezel);
+    border-radius:6px;position:relative;
+    box-shadow:inset 0 0 30px rgba(0,0,0,0.5),0 4px 12px rgba(0,0,0,0.4);}
+  .panel::before,.panel::after,.panel .rv1,.panel .rv2{
+    content:"";position:absolute;width:7px;height:7px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%,#6b7378,var(--rivet));box-shadow:inset 0 0 2px #000;}
+  .panel::before{top:8px;left:8px;} .panel::after{top:8px;right:8px;}
+  .panel .rv1{bottom:8px;left:8px;} .panel .rv2{bottom:8px;right:8px;}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;
+    border-bottom:2px solid var(--bezel);}
+  .panel-head h2{margin:0;font-size:15px;letter-spacing:2px;text-transform:uppercase;font-weight:600;}
+  .node-state{font-family:'Consolas','Courier New',monospace;font-size:11px;letter-spacing:1px;
+    text-transform:uppercase;padding:3px 9px;border-radius:3px;border:1px solid var(--dim);color:var(--dim);}
+  .node-state.live{color:var(--ok);border-color:var(--ok);}
+  .node-state.stale{color:var(--bad);border-color:var(--bad);}
+  .rows{padding:6px 20px 16px;}
+  .row{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:10px;padding:8px 0;
+    border-bottom:1px solid rgba(255,255,255,0.06);}
+  .row:last-child{border-bottom:none;}
+  .row.alarm .chan-value{color:var(--bad);text-shadow:0 0 9px rgba(255,75,75,0.45);}
+  .row.alarm .chan-name{color:var(--bad);}
+  .chan-name{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--dim);}
+  .chan-value{font-family:'Consolas','Courier New',monospace;font-size:25px;color:var(--amber);
+    text-shadow:0 0 8px rgba(255,179,0,0.35);font-variant-numeric:tabular-nums;
+    min-width:5.5ch;text-align:right;}
+  .chan-unit{font-family:'Consolas','Courier New',monospace;font-size:12px;color:var(--dim);width:4.5ch;}
+  .spark{grid-column:1/-1;height:24px;width:100%;display:block;margin-top:-2px;}
+  .minmax{grid-column:1/-1;font-family:'Consolas','Courier New',monospace;font-size:10px;color:var(--rivet);
+    display:flex;gap:12px;margin-top:-3px;}
+  .minmax b{color:var(--dim);font-weight:400;}
 
-   Everything visual is one of these variables or one of the rules below -
-   rewrite this block without touching the script at the bottom.
-   ================================================================== */
-:root {
-  --bg:      #f6f6f3;
-  --panel:   #ffffff;
-  --fg:      #0a0a0a;
-  --muted:   #3f3f3f;   /* deliberately darker than a typical "muted" gray */
-  --border:  #111111;
-  --accent:  #0a58c9;
-  --ok:      #0f7a2e;
-  --ok-bg:   #dff3e1;
-  --warn:    #8a5a00;
-  --warn-bg: #fbe9c8;
-  --bad:     #ac0e21;
-  --bad-bg:  #fadadd;
-  --radius:  6px;
-  --gap:     14px;
-  --font:    ui-sans-serif, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --mono:    ui-monospace, "Cascadia Mono", Consolas, monospace;
-}
+  /* ---- gauges ---- */
+  .gauge-row{display:flex;flex-wrap:wrap;gap:14px;}
+  .gauge{width:142px;background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--bezel);border-radius:8px;padding:9px 7px 11px;text-align:center;
+    box-shadow:inset 0 0 18px rgba(0,0,0,0.5);}
+  .gauge canvas{width:112px;height:112px;}
+  .gauge .g-name{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);}
+  .gauge .g-value{font-family:'Consolas','Courier New',monospace;font-size:15px;margin-top:2px;color:var(--amber);}
+  .gauge .g-unit{font-size:10px;color:var(--dim);}
+  .gauge.alarm{border-color:var(--bad);} .gauge.alarm .g-value{color:var(--bad);}
+  .node-block{margin-bottom:22px;}
+  .node-block h2{margin:0 0 10px;font-size:14px;letter-spacing:2px;text-transform:uppercase;
+    font-weight:600;color:var(--amber);display:flex;align-items:center;gap:10px;}
 
-* { box-sizing: border-box; }
+  /* ---- charts ---- */
+  .lane{display:grid;grid-template-columns:150px 1fr 84px;align-items:center;gap:10px;
+    border-bottom:1px solid rgba(255,255,255,0.05);padding:2px 0;}
+  .lane:last-child{border-bottom:none;}
+  .lane-name{font-family:'Consolas','Courier New',monospace;font-size:11px;color:var(--dim);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .lane canvas{width:100%;height:36px;display:block;}
+  .lane-val{font-family:'Consolas','Courier New',monospace;font-size:13px;text-align:right;
+    font-variant-numeric:tabular-nums;color:var(--amber);}
+  .lane-val i{font-style:normal;font-size:9px;color:var(--dim);margin-left:2px;}
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 15px/1.5 var(--font);
-}
+  /* ---- schematic ---- */
+  .schem{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;}
+  .schem .draw{flex:1 1 480px;min-width:320px;}
+  .schem svg{width:100%;height:auto;}
+  .schem .side{flex:0 1 260px;min-width:220px;}
+  .lbl{font-family:'Consolas','Courier New',monospace;font-size:9px;fill:var(--dim);letter-spacing:0.5px;}
+  .val{font-family:'Consolas','Courier New',monospace;font-size:13px;fill:var(--amber);}
+  .callout rect{fill:#12171a;stroke:var(--bezel);stroke-width:1.2;}
+  .callout.alarm rect{stroke:var(--bad);} .callout.alarm .val{fill:var(--bad);}
+  .leader{stroke:var(--rivet);stroke-width:1;stroke-dasharray:3 2;fill:none;}
+  .kv{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;
+    border-bottom:1px solid rgba(255,255,255,0.05);}
+  .kv span{font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:var(--dim);}
+  .kv b{font-family:'Consolas','Courier New',monospace;font-size:13px;color:var(--amber);
+    font-variant-numeric:tabular-nums;}
+  .kv b i{font-style:normal;font-size:9px;color:var(--dim);margin-left:3px;}
+  .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--bezel);
+    border-radius:8px;padding:13px 15px;margin-bottom:13px;}
+  .card h3{margin:0 0 8px;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--dim);}
 
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-  align-items: center;
-  padding: 14px 18px;
-  border-bottom: 3px solid var(--border);
-  background: var(--panel);
-  position: sticky;
-  top: 0;
-}
-.bar h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 800; letter-spacing: -0.01em; }
+  /* ---- map ---- */
+  .mapwrap{background:var(--panel);border:2px solid var(--bezel);border-radius:8px;padding:10px;
+    position:relative;flex:1 1 540px;min-width:320px;}
+  .mapwrap canvas{width:100%;display:block;border-radius:4px;}
+  .hint{position:absolute;left:20px;top:20px;font-family:'Consolas','Courier New',monospace;
+    font-size:11px;color:var(--dim);pointer-events:none;}
+  .big{font-family:'Consolas','Courier New',monospace;font-size:32px;color:var(--amber);text-align:center;
+    padding:2px 0;font-variant-numeric:tabular-nums;}
+  .big small{display:block;font-family:'Segoe UI','Arial Narrow',sans-serif;font-size:11px;letter-spacing:2px;
+    color:var(--dim);text-transform:uppercase;}
 
-.stat { font-size: 13px; color: var(--muted); font-weight: 600; }
-.stat b { color: var(--fg); font-weight: 800; font-family: var(--mono); }
+  /* ---- tables (logs / stats) ---- */
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead th{text-align:left;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);
+    font-weight:600;padding:0 11px 9px;border-bottom:2px solid var(--bezel);}
+  tbody td{padding:9px 11px;border-bottom:1px solid rgba(255,255,255,0.05);}
+  tbody tr:hover{background:rgba(255,255,255,0.025);}
+  td.num{font-family:'Consolas','Courier New',monospace;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .kind{display:inline-block;font-family:'Consolas','Courier New',monospace;font-size:10px;letter-spacing:1px;
+    text-transform:uppercase;border:1px solid;border-radius:3px;padding:1px 7px;}
+  .kind.tlm{color:var(--cyan);border-color:var(--cyan);}
+  .kind.csv{color:var(--ok);border-color:var(--ok);}
+  .cmd{background:#0d1112;border:1px solid var(--bezel);border-radius:4px;padding:6px 9px;
+    font-family:'Consolas','Courier New',monospace;font-size:11px;color:var(--amber);
+    display:flex;justify-content:space-between;gap:10px;align-items:center;}
+  .cmd button{background:none;border:none;color:var(--dim);cursor:pointer;font-family:'Segoe UI','Arial Narrow',sans-serif;
+    font-size:11px;letter-spacing:1px;text-transform:uppercase;}
+  .cmd button:hover{color:var(--text);}
+  .empty{border:1px dashed var(--bezel);border-radius:8px;padding:36px 24px;text-align:center;color:var(--dim);}
+  .empty h3{margin:0 0 8px;color:var(--text);font-size:15px;letter-spacing:1px;}
+  .empty p{margin:0 auto;max-width:540px;font-size:13px;line-height:1.65;}
+  .empty code, td code{font-family:'Consolas','Courier New',monospace;color:var(--amber);}
+  .warn{color:var(--bad);font-size:11px;display:block;margin-top:3px;}
 
-.link {
-  font-size: 13px; font-weight: 800; padding: 3px 10px; border-radius: var(--radius);
-  border: 2px solid var(--border);
-}
-.link.live    { color: var(--ok);   background: var(--ok-bg); }
-.link.waiting { color: var(--warn); background: var(--warn-bg); }
-.link.error,
-.link.down    { color: var(--bad);  background: var(--bad-bg); }
-.link.na      { color: var(--muted);background: #e9e9e5; }
+  footer{padding:0 22px 30px;font-family:'Consolas','Courier New',monospace;font-size:11px;
+    color:var(--dim);text-align:center;}
 
-main {
-  display: grid;
-  gap: var(--gap);
-  padding: var(--gap) 18px;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-}
-
-.node {
-  border: 3px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-.node.stale { opacity: .55; }
-
-.node-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  border-bottom: 3px solid var(--border);
-  background: #eeeeea;
-}
-.node-title { font-weight: 800; font-size: 16px; }
-.node-title span { color: var(--muted); font-weight: 600; font-size: 13px; margin-left: 8px; }
-.node-state {
-  font-size: 12.5px; font-weight: 800; padding: 3px 10px; border-radius: var(--radius);
-  border: 2px solid var(--border);
-}
-
-.chan { padding: 12px 16px; border-top: 2px solid #d8d8d2; }
-.chan:first-of-type { border-top: none; }
-.chan-row { display: flex; justify-content: space-between; align-items: baseline; }
-.chan-name { font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
-.chan-value { font-family: var(--mono); font-size: 30px; font-weight: 700; }
-.chan-unit { font-size: 13px; color: var(--muted); margin-left: 5px; font-weight: 600; }
-
-.spark { display: block; width: 100%; height: 34px; margin-top: 6px; }
-
-footer { padding: 4px 18px 20px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  /* ---- log scrubber overlay ---- */
+  .scrub-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(5,6,6,0.85);
+    padding:26px;overflow:auto;}
+  .scrub-overlay.on{display:block;}
+  .scrub-panel{max-width:1100px;margin:0 auto;background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:2px solid var(--bezel);border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.6);}
+  .scrub-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;
+    border-bottom:2px solid var(--bezel);}
+  .scrub-head h2{margin:0;font-size:14px;letter-spacing:1px;color:var(--amber);
+    font-family:'Consolas','Courier New',monospace;font-weight:400;word-break:break-all;}
+  .scrub-controls{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--bezel);}
+  .scrub-controls input[type=range]{flex:1;}
+  .scrub-body{padding:18px 20px;}
+  .scrub-body table{margin-top:4px;}
+  .scrub-body thead{display:none;}
+  .scrub-body td{padding:5px 4px;font-size:12px;}
 </style>
 </head>
-
 <body>
 
-<header class="bar">
-  <h1>Telemetry</h1>
-  <span id="link" class="link na">connecting</span>
-  <span class="stat">source <b id="source">-</b></span>
-  <span class="stat">frames <b id="frames">0</b></span>
-  <span class="stat">rate <b id="rate">-</b></span>
-  <span class="stat">last <b id="age">-</b></span>
-  <span class="stat">CAN loss <b id="loss">0</b></span>
-  <span class="stat">CRC err <b id="crc">0</b></span>
+<header>
+  <h1>Pit Wall <span>LIVE TELEMETRY</span></h1>
+  <div class="stat-row">
+    <span id="alarmChip">⚠ <b id="alarmCount">0</b> ALARM</span>
+    <span><span id="linkDot"></span><b id="link">connecting</b></span>
+    <span>FRAMES <b id="frames">0</b></span>
+    <span>RATE <b id="rate">--</b>HZ</span>
+    <span>AGE <b id="age">--</b>S</span>
+    <span>WIRE <b id="wire">--</b></span>
+  </div>
 </header>
 
-<main id="nodes"></main>
+<nav id="tabs">
+  <button data-tab="live"  class="on">Live<kbd>1</kbd></button>
+  <button data-tab="gauge">Gauges<kbd>2</kbd></button>
+  <button data-tab="schem">Schematic<kbd>3</kbd></button>
+  <button data-tab="chart">Charts<kbd>4</kbd></button>
+  <button data-tab="map">Map<kbd>5</kbd></button>
+  <button data-tab="stats">Session<kbd>6</kbd></button>
+  <button data-tab="logs">Logs<kbd>7</kbd></button>
+</nav>
 
-<footer id="detail"></footer>
+<div class="toolbar">
+  <button class="btn" id="freeze">Freeze</button>
+  <button class="btn" id="exportCsv">Export CSV</button>
+  <button class="btn" id="resetStats">Reset session</button>
+  <label><input type="checkbox" id="alarmsOn" checked> Alarms</label>
+  <label>Chart window
+    <select id="window"><option value="60">60s</option><option value="120" selected>2m</option><option value="300">5m</option></select>
+  </label>
+  <span class="mono" style="margin-left:auto;font-size:11px;" id="tip">1–7 switch tabs · F freezes</span>
+</div>
 
-<script src="js/telemetry-core.js"></script>
+<main>
+  <section class="tab on" id="tab-live"><div class="grid" id="livePanels"></div></section>
+  <section class="tab" id="tab-gauge"><div id="gaugeHost"></div></section>
+
+  <section class="tab" id="tab-schem">
+    <div class="schem">
+      <div class="draw">
+        <svg id="car" viewBox="0 0 620 700" xmlns="http://www.w3.org/2000/svg">
+          <g stroke="#3a4145" fill="none" stroke-width="2">
+            <path d="M310 40 L250 120 L250 250 L235 250 L235 470 L250 470 L250 600 L310 655
+                     L370 600 L370 470 L385 470 L385 250 L370 250 L370 120 Z"/>
+            <line x1="250" y1="185" x2="370" y2="185"/>
+            <line x1="250" y1="360" x2="370" y2="360"/>
+            <line x1="250" y1="530" x2="370" y2="530"/>
+          </g>
+          <text x="310" y="30" class="lbl" text-anchor="middle">FRONT</text>
+          <text x="310" y="682" class="lbl" text-anchor="middle">REAR</text>
+          <g stroke="#3a4145" stroke-width="2" fill="#1b2124">
+            <rect x="150" y="140" width="46" height="90" rx="5"/>
+            <rect x="424" y="140" width="46" height="90" rx="5"/>
+            <rect x="150" y="470" width="46" height="90" rx="5"/>
+            <rect x="424" y="470" width="46" height="90" rx="5"/>
+          </g>
+          <g>
+            <path class="leader" d="M150 150 L60 122"/><path class="leader" d="M470 150 L560 122"/>
+            <path class="leader" d="M150 555 L60 592"/><path class="leader" d="M470 555 L560 592"/>
+            <path class="leader" d="M300 300 L120 300"/><path class="leader" d="M320 430 L520 402"/>
+            <path class="leader" d="M310 610 L520 642"/>
+          </g>
+          <circle cx="310" cy="300" r="7" fill="#ff4b1f" stroke="#3a4145" stroke-width="1.5"/>
+          <rect x="288" y="410" width="44" height="40" rx="4" fill="#1b2124" stroke="#3a4145" stroke-width="2"/>
+          <rect x="280" y="580" width="60" height="46" rx="5" fill="#1b2124" stroke="#3a4145" stroke-width="2"/>
+          <g id="callouts"></g>
+        </svg>
+      </div>
+      <div class="side">
+        <div class="card"><h3>Position &amp; Attitude</h3><div id="schemHub"></div></div>
+        <div class="card"><h3>Driveline</h3><div id="schemDrive"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-chart"><div id="chartHost"></div></section>
+
+  <section class="tab" id="tab-map">
+    <div class="schem">
+      <div class="mapwrap">
+        <canvas id="map" width="900" height="558"></canvas>
+        <div class="hint" id="mapHint">waiting for a GPS fix — the trace starts once<br>the car has a fix and begins moving</div>
+      </div>
+      <div class="side">
+        <div class="card"><div class="big"><span id="mSpd">--</span><small>mph</small></div></div>
+        <div class="card"><h3>Position</h3>
+          <div class="kv"><span>lat</span><b id="mLat">--</b></div>
+          <div class="kv"><span>lon</span><b id="mLon">--</b></div>
+          <div class="kv"><span>heading</span><b id="mHdg">--</b></div>
+          <div class="kv"><span>sats</span><b id="mSats">--</b></div>
+        </div>
+        <div class="card"><h3>Course</h3>
+          <div class="kv"><span>distance</span><b id="mDist">--</b></div>
+          <div class="kv"><span>extent</span><b id="mExt">--</b></div>
+          <div class="kv"><span>points</span><b id="mPts">0</b></div>
+        </div>
+        <div class="card"><button class="btn" id="clearTrace" style="width:100%">Clear trace</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-stats"><div id="statsHost"></div></section>
+  <section class="tab" id="tab-logs"><div id="logsHost"><div class="empty"><p>Loading…</p></div></div></section>
+</main>
+
+<footer id="foot">--</footer>
+
+<script src="/static/js/telemetry-core.js"></script>
 <script>
 "use strict";
 const T = window.TelemetryCore;
-const el = id => document.getElementById(id);
-const ui = {
-  link: el("link"), source: el("source"), frames: el("frames"),
-  rate: el("rate"), age: el("age"), loss: el("loss"), crc: el("crc"),
-  nodes: el("nodes"), detail: el("detail"),
+const $ = id => document.getElementById(id);
+
+/* ==================================================================
+   Shared store. One socket, one history buffer, every tab reads from
+   here. Tabs that are hidden skip their canvas repaint but still get
+   their data updated, so switching to a tab shows full history rather
+   than starting blank.
+   ================================================================== */
+const store = {
+  meta: null,
+  channels: [],        // flat: {node, idx, name, unit, key}
+  series: {},          // key -> number[]
+  stats: {},           // key -> {min,max,sum,n,last}
+  nodeState: {},       // node -> {stale,fault,loss}
+  frames: 0,
+  framePeriodMs: 500,
+  frozen: false,
+  rows: [],            // full session, for CSV export
+};
+const rate = T.makeRateTracker();
+let activeTab = "live";
+
+// Limits that turn a reading red. Deliberately generous - these are
+// "something is wrong" thresholds, not performance targets, and a dashboard
+// that cries wolf gets ignored. Tune per car.
+const LIMITS = {
+  cvt_temp:        { max: 120, note: "CVT overheating" },
+  motor_temp:      { max: 100, note: "motor overheating" },
+  bus_voltage:     { min: 46,  max: 60, note: "pack voltage out of range" },
+  motor_current:   { max: 55,  note: "near current limit" },
+  gps_sats:        { min: 4,   note: "GPS fix degraded" },
+  brake_resistor_w:{ max: 45,  note: "brake resistor near rating" },
+  accel_z:         { min: -0.5, max: 3.0, note: "large vertical hit" },
 };
 
-let panels = [];              // panels[node] = { root, state, chans:[...] }
-let meta = null;
-let frameCount = 0;
-let totalLoss = 0;
-let lastFrameAt = 0;
-const rate = T.makeRateTracker();
+const RANGES = {
+  gps_speed:[0,50], gps_heading:[0,360], gps_sats:[0,14],
+  accel_x:[-1,1], accel_y:[-0.3,0.3], accel_z:[0.5,1.5], gyro_z:[-60,60],
+  wheel_speed_fl:[0,50], wheel_speed_fr:[0,50], wheel_speed_rl:[0,50], wheel_speed_rr:[0,50],
+  suspension_fl:[0,50], suspension_fr:[0,50], suspension_rl:[0,50], suspension_rr:[0,50],
+  brake_pressure_f:[0,150], cvt_temp:[0,150],
+  motor_current:[0,20], motor_velocity:[0,6000], motor_temp:[0,120],
+  bus_voltage:[48,58], brake_resistor_w:[0,10],
+  temp_c:[0,50], humidity:[0,100], pressure:[80,110],
+  batt_v:[10,14], current_a:[0,8], power_w:[0,100],
+};
 
-/* ------------------------------------------------------------------
-   Layout
-   ------------------------------------------------------------------ */
-function buildPanels(m) {
-  ui.nodes.innerHTML = "";
-  panels = [];
-
-  for (const node of m.nodes) {
-    const root = document.createElement("section");
-    root.className = "node stale";
-
-    const head = document.createElement("div");
-    head.className = "node-head";
-    head.innerHTML =
-      `<div class="node-title">${node.label}<span>node ${node.node_id}</span></div>`;
-
-    const state = document.createElement("span");
-    state.className = "node-state";
-    state.textContent = "WAITING";
-    head.appendChild(state);
-    root.appendChild(head);
-
-    const chans = [];
-    for (const ch of node.channels) {
-      const wrap = document.createElement("div");
-      wrap.className = "chan";
-
-      const row = document.createElement("div");
-      row.className = "chan-row";
-      row.innerHTML = `<span class="chan-name">${ch.name}</span>`;
-
-      const value = document.createElement("span");
-      value.className = "chan-value";
-      value.innerHTML = `--<span class="chan-unit">${ch.unit}</span>`;
-      row.appendChild(value);
-      wrap.appendChild(row);
-
-      const canvas = document.createElement("canvas");
-      canvas.className = "spark";
-      wrap.appendChild(canvas);
-
-      root.appendChild(wrap);
-      chans.push({ value, canvas, unit: ch.unit, data: [] });
-    }
-
-    ui.nodes.appendChild(root);
-    panels.push({ root, state, chans });
-  }
+const key = (n,i) => `${n}:${i}`;
+function alarmed(name, v){
+  if (!$("alarmsOn").checked) return false;
+  const L = LIMITS[name]; if (!L) return false;
+  return (L.min != null && v < L.min) || (L.max != null && v > L.max);
 }
+function setWire(m){ $("wire").textContent = m.frame_bytes == null ? "raw-json" : `${m.wire_format||"v2"}·${m.frame_bytes}B`; }
+function windowSamples(){ return Math.max(8, Math.round(parseInt($("window").value,10)*1000/store.framePeriodMs)); }
 
-function fmt(v) { return T.fmt(v); }
+/* ================= build (on meta) ================= */
+const live = {}, gauges = {}, lanes = {}, callouts = {}, schemKv = {};
 
-/* ------------------------------------------------------------------
-   Incoming data
-   ------------------------------------------------------------------ */
-function applyFrame(frame, redraw) {
-  frameCount++;
-  lastFrameAt = performance.now();
-  rate.hit();
+const CALLOUTS = [
+  {ch:"wheel_speed_fl",x:6,y:88,l:"WHEEL FL"},   {ch:"suspension_fl",x:6,y:130,l:"SUSP FL"},
+  {ch:"wheel_speed_fr",x:474,y:88,l:"WHEEL FR"}, {ch:"suspension_fr",x:474,y:130,l:"SUSP FR"},
+  {ch:"wheel_speed_rl",x:6,y:558,l:"WHEEL RL"},  {ch:"suspension_rl",x:6,y:600,l:"SUSP RL"},
+  {ch:"wheel_speed_rr",x:474,y:558,l:"WHEEL RR"},{ch:"suspension_rr",x:474,y:600,l:"SUSP RR"},
+  {ch:"brake_pressure_f",x:6,y:272,l:"BRAKE"},   {ch:"cvt_temp",x:474,y:370,l:"CVT TEMP"},
+  {ch:"motor_temp",x:474,y:614,l:"MOTOR T"},
+];
+const SIDE_HUB = ["gps_speed","gps_heading","gps_sats","accel_x","accel_y","accel_z","gyro_z"];
+const SIDE_DRV = ["motor_current","motor_velocity","bus_voltage","brake_resistor_w"];
+const NS = "http://www.w3.org/2000/svg";
 
-  for (const rec of frame.nodes) {
-    const panel = panels[rec.node_id];
-    if (!panel) continue;
+function build(m){
+  store.meta = m;
+  store.framePeriodMs = m.frame_period_ms || 500;
+  store.channels = [];
+  m.nodes.forEach(n => n.channels.forEach((c,i) =>
+    store.channels.push({node:n.node_id,idx:i,name:c.name,unit:c.unit,key:key(n.node_id,i)})));
+  store.channels.forEach(c => { store.series[c.key]=[]; store.stats[c.key]=null; });
 
-    totalLoss += rec.loss;
-    panel.root.classList.toggle("stale", rec.stale);
-
-    if (rec.stale) {
-      panel.state.textContent = "OFFLINE";
-      panel.state.style.color = "var(--bad)";
-      panel.state.style.background = "var(--bad-bg)";
-    } else if (rec.fault) {
-      panel.state.textContent = "FAULT";
-      panel.state.style.color = "var(--warn)";
-      panel.state.style.background = "var(--warn-bg)";
-    } else {
-      panel.state.textContent = rec.loss ? `${rec.loss} LOST` : "LIVE";
-      panel.state.style.color = "var(--ok)";
-      panel.state.style.background = "var(--ok-bg)";
-    }
-
-    rec.channels.forEach((ch, i) => {
-      const slot = panel.chans[i];
-      if (!slot) return;
-
-      slot.data.push(ch.value);
-      if (slot.data.length > T.HISTORY) slot.data.shift();
-
-      if (redraw) {
-        slot.value.innerHTML =
-          `${fmt(ch.value)}<span class="chan-unit">${ch.unit}</span>`;
-        // Solid, dark, high-contrast stroke - not the theme accent, which
-        // may be too light to read outdoors.
-        T.drawSpark(slot.canvas, slot.data, "#0a0a0a");
-      }
+  // ---- Live ----
+  const host = $("livePanels"); host.innerHTML="";
+  m.nodes.forEach(node => {
+    const p = document.createElement("section"); p.className="panel";
+    p.innerHTML = `<span class="rv1"></span><span class="rv2"></span>
+      <div class="panel-head"><h2>${node.label}</h2><span class="node-state">waiting</span></div>
+      <div class="rows"></div>`;
+    const rows = p.querySelector(".rows");
+    node.channels.forEach((c,i) => {
+      const r = document.createElement("div"); r.className="row";
+      r.innerHTML = `<span class="chan-name">${c.name}</span><span class="chan-value">--</span>
+        <span class="chan-unit">${c.unit}</span>
+        <canvas class="spark"></canvas>
+        <div class="minmax"><span>min <b>--</b></span><span>max <b>--</b></span><span>avg <b>--</b></span></div>`;
+      rows.appendChild(r);
+      const mm = r.querySelectorAll(".minmax b");
+      live[key(node.node_id,i)] = {row:r, val:r.querySelector(".chan-value"),
+        spark:r.querySelector(".spark"), min:mm[0], max:mm[1], avg:mm[2]};
     });
+    host.appendChild(p);
+    live["state:"+node.node_id] = p.querySelector(".node-state");
+  });
+
+  // ---- Gauges ----
+  const gh = $("gaugeHost"); gh.innerHTML="";
+  m.nodes.forEach(node => {
+    const b = document.createElement("div"); b.className="node-block";
+    b.innerHTML = `<h2>${node.label}</h2><div class="gauge-row"></div>`;
+    const row = b.querySelector(".gauge-row");
+    node.channels.forEach((c,i) => {
+      const rng = RANGES[c.name]; if (!rng) return;
+      const g = document.createElement("div"); g.className="gauge";
+      g.innerHTML = `<canvas></canvas><div class="g-name">${c.name}</div>
+        <div class="g-value">--</div><div class="g-unit">${c.unit}</div>`;
+      row.appendChild(g);
+      gauges[key(node.node_id,i)] = {box:g, canvas:g.querySelector("canvas"),
+        val:g.querySelector(".g-value"), range:rng};
+    });
+    if (row.children.length) gh.appendChild(b);
+  });
+
+  // ---- Charts ----
+  const ch = $("chartHost"); ch.innerHTML="";
+  m.nodes.forEach(node => {
+    const b = document.createElement("div"); b.className="node-block";
+    b.innerHTML = `<h2>${node.label}</h2>`;
+    node.channels.forEach((c,i) => {
+      const l = document.createElement("div"); l.className="lane";
+      l.innerHTML = `<span class="lane-name" title="${c.name}">${c.name}</span><canvas></canvas>
+        <span class="lane-val">--<i>${c.unit}</i></span>`;
+      b.appendChild(l);
+      lanes[key(node.node_id,i)] = {canvas:l.querySelector("canvas"), val:l.querySelector(".lane-val"), unit:c.unit};
+    });
+    ch.appendChild(b);
+  });
+
+  // ---- Schematic ----
+  const byName = {}; store.channels.forEach(c => byName[c.name]=c);
+  const cg = $("callouts"); cg.innerHTML="";
+  CALLOUTS.forEach(c => {
+    const src = byName[c.ch]; if (!src) return;
+    const g = document.createElementNS(NS,"g"); g.setAttribute("class","callout");
+    g.innerHTML = `<rect x="${c.x}" y="${c.y}" width="140" height="38" rx="3"/>
+      <text x="${c.x+8}" y="${c.y+14}" class="lbl">${c.l}</text>
+      <text x="${c.x+8}" y="${c.y+31}" class="val">--<tspan class="lbl"> ${src.unit}</tspan></text>`;
+    cg.appendChild(g);
+    callouts[src.key] = {g, val:g.querySelectorAll("text")[1], unit:src.unit};
+  });
+  const fillKv = (host, names) => {
+    host.innerHTML="";
+    names.forEach(n => { const src=byName[n]; if(!src) return;
+      const d=document.createElement("div"); d.className="kv";
+      d.innerHTML=`<span>${n}</span><b>--<i>${src.unit}</i></b>`;
+      host.appendChild(d); schemKv[src.key]={val:d.querySelector("b"),unit:src.unit}; });
+  };
+  fillKv($("schemHub"), SIDE_HUB); fillKv($("schemDrive"), SIDE_DRV);
+
+  setWire(m);
+  setFooter(m.source);
+  if (!byName.gps_lat) $("mapHint").innerHTML = "this feed has no <b>gps_lat</b>/<b>gps_lon</b> —<br>the map needs the v2 protocol";
+}
+
+// This page serves real hardware (run.py's default) as well as --sim/--replay,
+// unlike simulation/dashboards' copy of this same design, which is always
+// synthetic. A hardcoded "SYNTHETIC FEED" footer would be actively wrong
+// while watching real CAN/LoRa data - meta.source (serial/simulator/replay,
+// set in telemetry/sources.py) says which one this actually is.
+function setFooter(source){
+  const s = source || "";
+  const synthetic = s === "simulator" || s.startsWith("replay ");
+  $("foot").textContent = synthetic
+    ? `SYNTHETIC FEED — NOT LIVE HARDWARE (${s})`
+    : `LIVE HARDWARE — ${s}`;
+}
+
+/* ================= drawing ================= */
+function drawSpark(c, data){
+  const dpr=devicePixelRatio||1, w=c.clientWidth, h=c.clientHeight;
+  if(!w||!h) return;
+  if(c.width!==w*dpr){c.width=w*dpr;c.height=h*dpr;}
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  if(data.length<2) return;
+  const n=Math.min(data.length,120), d=data.slice(-n);
+  let lo=Math.min(...d), hi=Math.max(...d);
+  if(hi-lo<1e-9){lo-=0.5;hi+=0.5;}
+  x.beginPath();
+  d.forEach((v,i)=>{const px=i/(n-1)*w, py=h-((v-lo)/(hi-lo))*h; i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.strokeStyle="rgba(255,179,0,0.5)"; x.lineWidth=1.1; x.stroke();
+}
+
+function drawLane(c, data){
+  const dpr=devicePixelRatio||1, w=c.clientWidth, h=c.clientHeight;
+  if(!w||!h) return;
+  if(c.width!==w*dpr){c.width=w*dpr;c.height=h*dpr;}
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  x.strokeStyle="rgba(255,255,255,0.05)";
+  for(let gx=0;gx<w;gx+=40){x.beginPath();x.moveTo(gx,0);x.lineTo(gx,h);x.stroke();}
+  if(data.length<2) return;
+  const n=windowSamples(), d=data.slice(-n);
+  let lo=Math.min(...d), hi=Math.max(...d);
+  if(hi-lo<1e-9){lo-=0.5;hi+=0.5;}
+  const pad=(hi-lo)*0.12; lo-=pad; hi+=pad;
+  const step=w/Math.max(1,n-1), off=n-d.length;
+  const X=i=>(i+off)*step, Y=v=>h-((v-lo)/(hi-lo))*h;
+  if(lo<0&&hi>0){x.beginPath();x.moveTo(0,Y(0));x.lineTo(w,Y(0));x.strokeStyle="rgba(255,255,255,0.10)";x.stroke();}
+  x.beginPath(); d.forEach((v,i)=>{const px=X(i),py=Y(v); i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.strokeStyle="#ffb300"; x.lineWidth=1.3; x.stroke();
+  x.beginPath(); x.arc(X(d.length-1),Y(d[d.length-1]),2,0,7); x.fillStyle="#ff4b1f"; x.fill();
+}
+
+function drawGauge(c, v, min, max, isAlarm){
+  const dpr=devicePixelRatio||1, size=112;
+  if(c.width!==size*dpr){c.width=size*dpr;c.height=size*dpr;}
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,size,size);
+  const cx=size/2, cy=size/2, r=size/2-11, s=Math.PI*0.75, e=Math.PI*2.25;
+  x.beginPath(); x.arc(cx,cy,r,s,e); x.strokeStyle="#2a3033"; x.lineWidth=8; x.lineCap="round"; x.stroke();
+  const f=Math.max(0,Math.min(1,(v-min)/(max-min||1))), va=s+f*(e-s);
+  x.beginPath(); x.arc(cx,cy,r,s,va);
+  x.strokeStyle=isAlarm?"#ff4b4b":"#ffb300"; x.lineWidth=8; x.stroke();
+  x.beginPath(); x.moveTo(cx,cy);
+  x.lineTo(cx+Math.cos(va)*(r-4), cy+Math.sin(va)*(r-4));
+  x.strokeStyle="#e8e4dc"; x.lineWidth=1.8; x.stroke();
+  x.beginPath(); x.arc(cx,cy,4,0,7); x.fillStyle="#7d8580"; x.fill();
+}
+
+/* ================= map ================= */
+const R_E=6371000; let mapPts=[], mapOrigin=null, mapDist=0, mapHdg=0;
+function project(la,lo){
+  const k=Math.PI/180, c=Math.cos(mapOrigin.lat*k);
+  return {x:(lo-mapOrigin.lon)*k*R_E*c, y:-(la-mapOrigin.lat)*k*R_E};
+}
+// Never zoom tighter than this. Without a floor, a car sitting still with a
+// couple of metres of GPS wander fills the whole canvas with what looks like
+// a violent scribble - technically an accurate auto-fit, completely useless
+// to look at. 30 m keeps a stationary car a small dot and only zooms in once
+// there is a real shape to see.
+const MIN_VIEW_M = 30;
+
+function drawMap(){
+  const c=$("map"); const dpr=devicePixelRatio||1;
+  const w=c.clientWidth, h=Math.round(w*0.62);
+  if(!w||!h) return;
+  // Round: clientWidth*dpr is often fractional, and assigning a fractional
+  // value to canvas.width truncates, so a bare !== comparison is true every
+  // frame and needlessly reallocates the backing store.
+  const bw=Math.round(w*dpr), bh=Math.round(h*dpr);
+  if(c.width!==bw||c.height!==bh){c.width=bw;c.height=bh;c.style.height=h+"px";}
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
+  x.fillStyle="#0d1113"; x.fillRect(0,0,w,h);
+  if(mapPts.length<2){grid(x,w,h,1,{x:0,y:0});return;}
+  let a=Infinity,b=-Infinity,cc=Infinity,d=-Infinity;
+  for(const p of mapPts){a=Math.min(a,p.x);b=Math.max(b,p.x);cc=Math.min(cc,p.y);d=Math.max(d,p.y);}
+  const mgn=32;
+  const sc=Math.min((w-2*mgn)/Math.max(b-a,MIN_VIEW_M),(h-2*mgn)/Math.max(d-cc,MIN_VIEW_M));
+  const ox=(a+b)/2, oy=(cc+d)/2;
+  const S=p=>({x:w/2+(p.x-ox)*sc, y:h/2+(p.y-oy)*sc});
+  grid(x,w,h,sc,{x:ox,y:oy});
+  x.beginPath(); mapPts.forEach((p,i)=>{const s=S(p); i?x.lineTo(s.x,s.y):x.moveTo(s.x,s.y);});
+  x.lineJoin="round"; x.lineCap="round";
+  x.strokeStyle="rgba(255,179,0,0.16)"; x.lineWidth=7; x.stroke();
+  x.strokeStyle="#ffb300"; x.lineWidth=1.8; x.stroke();
+  const s0=S(mapPts[0]);
+  x.beginPath(); x.arc(s0.x,s0.y,5,0,7); x.strokeStyle="#7d8580"; x.lineWidth=1.5; x.stroke();
+  x.font="10px 'Consolas','Courier New',monospace"; x.fillStyle="#7d8580"; x.fillText("START",s0.x+9,s0.y+4);
+  const last=S(mapPts[mapPts.length-1]), ang=(mapHdg-90)*Math.PI/180;
+  x.save(); x.translate(last.x,last.y); x.rotate(ang);
+  x.beginPath(); x.moveTo(11,0); x.lineTo(-7,6.5); x.lineTo(-3.5,0); x.lineTo(-7,-6.5); x.closePath();
+  x.fillStyle="#ff4b1f"; x.fill(); x.restore();
+  // scale bar - a map with no basemap still has to say how big it is
+  let m=Math.min(150,w*0.25)/sc, pw=Math.pow(10,Math.floor(Math.log10(m)));
+  m=(m/pw>=5?5:m/pw>=2?2:1)*pw;
+  const bp=m*sc, bx=w-mgn-bp, by=h-18;
+  x.beginPath(); x.moveTo(bx,by); x.lineTo(bx+bp,by);
+  x.moveTo(bx,by-4); x.lineTo(bx,by+4); x.moveTo(bx+bp,by-4); x.lineTo(bx+bp,by+4);
+  x.strokeStyle="#7d8580"; x.lineWidth=1.5; x.stroke();
+  const lab = m>=1000 ? (Math.round(m/100)/10)+" km" : Math.round(m)+" m";
+  x.textAlign="center"; x.fillText(lab, bx+bp/2, by-7); x.textAlign="start";
+}
+function grid(x,w,h,sc,ctr){
+  x.strokeStyle="rgba(255,255,255,0.04)"; x.lineWidth=1;
+  let st=10; while(st*sc<40) st*=2;
+  const sp=st*sc, gx=(w/2-ctr.x*sc)%sp, gy=(h/2-ctr.y*sc)%sp;
+  for(let i=gx;i<w;i+=sp){x.beginPath();x.moveTo(i,0);x.lineTo(i,h);x.stroke();}
+  for(let i=gy;i<h;i+=sp){x.beginPath();x.moveTo(0,i);x.lineTo(w,i);x.stroke();}
+}
+
+/* ================= frame handling ================= */
+function applyFrame(frame, redraw){
+  if (store.frozen) return;
+  store.frames++; rate.hit();
+
+  const row = {t_ms:frame.t_ms, seq:frame.seq};
+  let alarms = 0;
+  const cap = windowSamples()*3;
+
+  frame.nodes.forEach(rec => {
+    store.nodeState[rec.node_id] = {stale:!!rec.stale, fault:!!rec.fault, loss:rec.loss||0};
+    const st = live["state:"+rec.node_id];
+    if (st){
+      st.textContent = rec.stale?"stale":(rec.fault?"fault":"live");
+      st.className = "node-state "+(rec.stale||rec.fault?"stale":"live");
+    }
+    rec.channels.forEach((c,i) => {
+      const k = key(rec.node_id,i);
+      const meta = store.channels.find(x=>x.key===k);
+      const name = meta ? meta.name : k;
+      const v = c.value;
+
+      const ser = store.series[k]; if (!ser) return;
+      ser.push(v); if (ser.length>cap) ser.shift();
+
+      let s = store.stats[k];
+      if (!s) s = store.stats[k] = {min:v,max:v,sum:0,n:0,last:v};
+      s.min=Math.min(s.min,v); s.max=Math.max(s.max,v); s.sum+=v; s.n++; s.last=v;
+
+      const bad = alarmed(name, v); if (bad) alarms++;
+      row[name] = v;
+
+      const L = live[k];
+      if (L){
+        L.val.textContent = T.fmt(v);
+        L.row.classList.toggle("alarm", bad);
+        if (redraw && activeTab==="live"){
+          L.min.textContent=T.fmt(s.min); L.max.textContent=T.fmt(s.max);
+          L.avg.textContent=T.fmt(s.sum/s.n);
+          drawSpark(L.spark, ser);
+        }
+      }
+      const G = gauges[k];
+      if (G && redraw && activeTab==="gauge"){
+        G.val.textContent=T.fmt(v); G.box.classList.toggle("alarm",bad);
+        drawGauge(G.canvas, v, G.range[0], G.range[1], bad);
+      }
+      const LN = lanes[k];
+      if (LN && redraw && activeTab==="chart"){
+        LN.val.innerHTML=`${T.fmt(v)}<i>${LN.unit}</i>`;
+        drawLane(LN.canvas, ser);
+      }
+      const CO = callouts[k];
+      if (CO && activeTab==="schem"){
+        CO.val.innerHTML=`${T.fmt(v)}<tspan class="lbl"> ${CO.unit}</tspan>`;
+        CO.g.classList.toggle("alarm",bad);
+      }
+      const KV = schemKv[k];
+      if (KV && activeTab==="schem") KV.val.innerHTML=`${T.fmt(v)}<i>${KV.unit}</i>`;
+    });
+  });
+
+  store.rows.push(row);
+  if (store.rows.length > 50000) store.rows.shift();  // ~7 h at 2 Hz
+
+  // GPS
+  const g = n => { const c=store.channels.find(x=>x.name===n); if(!c) return null;
+    const rec=frame.nodes.find(r=>r.node_id===c.node);
+    return rec && rec.channels[c.idx] ? {v:rec.channels[c.idx].value, stale:!!rec.stale} : null; };
+  const la=g("gps_lat"), lo=g("gps_lon"), sp=g("gps_speed"), hd=g("gps_heading"), sa=g("gps_sats");
+  if (sp) $("mSpd").textContent=sp.v.toFixed(1);
+  if (hd){ $("mHdg").textContent=hd.v.toFixed(0)+"°"; mapHdg=hd.v; }
+  if (sa) $("mSats").textContent=Math.round(sa.v);
+  // A lost fix reading 0,0 would draw a line to null island off Africa and
+  // wreck the auto-fit scale, so treat it as no fix rather than a position.
+  const fix = la&&lo&&!la.stale&&(!sa||sa.v>0)&&Math.abs(la.v)>1e-4&&Math.abs(lo.v)>1e-4;
+  if (fix){
+    $("mLat").textContent=la.v.toFixed(6); $("mLon").textContent=lo.v.toFixed(6);
+    if(!mapOrigin) mapOrigin={lat:la.v,lon:lo.v};
+    const p=project(la.v,lo.v), prev=mapPts[mapPts.length-1];
+    if(!prev||Math.hypot(p.x-prev.x,p.y-prev.y)>0.1){
+      if(prev) mapDist+=Math.hypot(p.x-prev.x,p.y-prev.y);
+      mapPts.push(p); if(mapPts.length>20000) mapPts.shift();
+    }
+    $("mapHint").style.display="none";
   }
+  $("mPts").textContent=mapPts.length;
+  $("mDist").textContent = mapDist>=1000 ? (mapDist/1000).toFixed(2)+" km" : mapDist.toFixed(0)+" m";
+  if (mapPts.length>=2){
+    let a=Infinity,b=-Infinity,c2=Infinity,d=-Infinity;
+    for(const p of mapPts){a=Math.min(a,p.x);b=Math.max(b,p.x);c2=Math.min(c2,p.y);d=Math.max(d,p.y);}
+    $("mExt").textContent=`${(b-a).toFixed(0)} × ${(d-c2).toFixed(0)} m`;
+  }
+  if (redraw && activeTab==="map") drawMap();
+  if (redraw && activeTab==="stats") renderStats();
 
-  if (redraw) {
-    ui.frames.textContent = frameCount;
-    ui.loss.textContent = totalLoss;
-    const hz = rate.hz();
-    if (hz) ui.rate.textContent = hz.toFixed(2) + " Hz";
+  if (redraw){
+    $("frames").textContent=store.frames;
+    const hz=rate.hz(); $("rate").textContent=hz?hz.toFixed(1):"--";
+    $("alarmCount").textContent=alarms;
+    $("alarmChip").classList.toggle("on", alarms>0);
   }
 }
 
-function applyStatus(s) {
-  ui.source.textContent = s.source || "-";
-  ui.crc.textContent = s.crc_errors ?? 0;
-
-  ui.link.className = "link " + (s.link || "na").replace("/", "");
-  ui.link.textContent = (s.link || "-").toUpperCase();
-
-  ui.detail.textContent = s.error ? `error: ${s.error}` : (s.detail || "");
+/* ================= session stats tab ================= */
+function renderStats(){
+  const rows = store.channels.map(c => {
+    const s = store.stats[c.key]; if (!s) return "";
+    const L = LIMITS[c.name];
+    const lim = L ? `${L.min!=null?"≥"+L.min:""} ${L.max!=null?"≤"+L.max:""}`.trim() : "—";
+    const bad = alarmed(c.name, s.last);
+    return `<tr>
+      <td>${c.name}</td>
+      <td class="num" style="color:${bad?"var(--bad)":"var(--amber)"}">${T.fmt(s.last)}</td>
+      <td class="num">${T.fmt(s.min)}</td>
+      <td class="num">${T.fmt(s.max)}</td>
+      <td class="num">${T.fmt(s.sum/s.n)}</td>
+      <td class="num" style="color:var(--dim)">${c.unit}</td>
+      <td class="num" style="color:var(--dim)">${lim}</td>
+    </tr>`;
+  }).join("");
+  $("statsHost").innerHTML = store.frames
+    ? `<table><thead><tr><th>Channel</th><th>Now</th><th>Min</th><th>Max</th><th>Avg</th><th>Unit</th><th>Alarm if</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty"><h3>No data yet</h3><p>Session statistics appear once frames start arriving.</p></div>`;
 }
 
-function tickAge() {
-  if (!lastFrameAt) return;
-  const age = (performance.now() - lastFrameAt) / 1000;
-  ui.age.textContent = age.toFixed(1) + "s";
-  const limit = meta ? meta.frame_period_ms / 1000 * 3 : 2;
-  ui.age.style.color = age > limit ? "var(--bad)" : "";
+/* ================= CSV export ================= */
+function exportCsv(){
+  if (!store.rows.length){ alert("Nothing recorded yet."); return; }
+  const names = store.channels.map(c=>c.name);
+  const head = ["seq","t_ms",...names].join(",");
+  const body = store.rows.map(r => [r.seq, r.t_ms, ...names.map(n => r[n]!=null?r[n]:"")].join(",")).join("\n");
+  const blob = new Blob([head+"\n"+body], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `session_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
 }
-setInterval(tickAge, 200);
 
+/* ================= logs tab ================= */
+function fmtBytes(n){ return n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB"; }
+function fmtDur(s){ if(s==null) return "—"; if(s<60) return s.toFixed(0)+"s";
+  return Math.floor(s/60)+"m "+String(Math.round(s%60)).padStart(2,"0")+"s"; }
+
+async function loadLogs(){
+  const host = $("logsHost");
+  try{
+    const d = await (await fetch("/api/logs")).json();
+    if(!d.exists){ host.innerHTML=`<div class="empty"><h3>No field_data/ folder</h3><p>Expected at <code>${d.root}</code>.</p></div>`; return; }
+    if(!d.entries.length){
+      host.innerHTML=`<div class="empty"><h3>Nothing recorded yet</h3>
+        <p>Pull the microSD out of the hub after a run and copy <code>LOG0001.TLM</code> into a dated
+        folder under <code>field_data/</code> — e.g. <code>field_data/2026-08-15_first_track_test/</code>.
+        Add a short <code>notes.md</code> with conditions and what you were testing; six months from now
+        that is the difference between a useful log and an anonymous blob.</p></div>`; return;
+    }
+    const rows = d.entries.map(e=>{
+      const cmd = `python run.py --proto v2 --replay ../field_data/${e.rel}`;
+      const rep = e.kind==="tlm"
+        ? `<div class="cmd"><span>${cmd}</span><button data-cmd="${cmd}">copy</button>
+           <button class="btn" data-scrub="${e.rel}" style="padding:2px 10px;font-size:10px;">Scrub</button></div>`
+        : `<span style="color:var(--dim);font-size:12px;">engineering units — open in a spreadsheet</span>`;
+      return `<tr><td class="mono">${e.name}${e.dir&&e.dir!=="."?`<span style="display:block;font-size:11px;color:var(--dim)">${e.dir}/</span>`:""}
+        ${e.partial?`<span class="warn">truncated — not a whole number of frames</span>`:""}</td>
+        <td><span class="kind ${e.kind}">${e.kind}</span></td>
+        <td class="num">${fmtBytes(e.bytes)}</td>
+        <td class="num">${e.frames==null?"—":e.frames.toLocaleString()}</td>
+        <td class="num">${fmtDur(e.duration_s)}</td>
+        <td class="num">${e.modified}</td>
+        <td style="min-width:320px">${rep}</td></tr>`;
+    }).join("");
+    host.innerHTML = `<table><thead><tr><th>File</th><th>Type</th><th>Size</th><th>Frames</th>
+      <th>Duration</th><th>Modified</th><th>Replay</th></tr></thead><tbody>${rows}</tbody></table>
+      <p style="color:var(--dim);font-size:12px;margin-top:14px">root <code>${d.root}</code> ·
+      ${d.entries.length} file(s) · frame size ${d.frame_size||"—"} B</p>`;
+    host.querySelectorAll("button[data-cmd]").forEach(b=>b.addEventListener("click", async()=>{
+      try{ await navigator.clipboard.writeText(b.dataset.cmd);
+        const w=b.textContent; b.textContent="copied"; setTimeout(()=>b.textContent=w,1200);
+      }catch{ b.textContent="select manually"; }
+    }));
+    host.querySelectorAll("button[data-scrub]").forEach(b=>b.addEventListener("click",
+      ()=>openScrubber(b.dataset.scrub)));
+  }catch(err){
+    host.innerHTML=`<div class="empty"><h3>Could not reach the server</h3><p>${err}</p></div>`;
+  }
+}
+
+/* ================= scrubber (whole-log review, not live) =================
+   For the team reviewing a pulled SD card after a session: load one log
+   file in full and drag through it, independent of the live WebSocket -
+   opening this never touches or interrupts whatever the Live tab is doing.
+   Deliberately its own small renderer (a channel table, not the full
+   Live/Gauges/Schematic treatment) rather than reusing the live `store` -
+   that store is wired to one continuous stream; bolting a second,
+   independently-scrubbable timeline onto the same objects the live view
+   mutates every 500ms is exactly the kind of shared-mutable-state bug that
+   is hard to see coming and harder to debug later. */
+const scrub = { meta:null, frames:[], idx:0, playing:false, timer:null };
+
+function scrubOverlayEl(){
+  let el = $("scrubOverlay");
+  if (el) return el;
+  el = document.createElement("div");
+  el.id = "scrubOverlay";
+  el.className = "scrub-overlay";
+  el.innerHTML = `
+    <div class="scrub-panel">
+      <div class="scrub-head">
+        <h2 id="scrubTitle">—</h2>
+        <button class="btn" id="scrubClose">Close</button>
+      </div>
+      <div class="scrub-controls">
+        <button class="btn" id="scrubPlay">Play</button>
+        <input type="range" id="scrubSlider" min="0" max="0" value="0" step="1">
+        <span class="mono" id="scrubPos" style="min-width:220px;text-align:right;">—</span>
+      </div>
+      <div id="scrubBody" class="scrub-body"></div>
+    </div>`;
+  document.body.appendChild(el);
+  $("scrubClose").addEventListener("click", closeScrubber);
+  $("scrubSlider").addEventListener("input", e=>{ stopScrubPlay(); renderScrubFrame(parseInt(e.target.value,10)); });
+  $("scrubPlay").addEventListener("click", toggleScrubPlay);
+  return el;
+}
+
+async function openScrubber(rel){
+  const el = scrubOverlayEl();
+  el.classList.add("on");
+  $("scrubTitle").textContent = rel;
+  $("scrubBody").innerHTML = `<div class="empty"><p>Loading…</p></div>`;
+  try{
+    const d = await (await fetch(`/api/log/${rel.split("/").map(encodeURIComponent).join("/")}`)).json();
+    if (d.error){ $("scrubBody").innerHTML = `<div class="empty"><h3>Could not load</h3><p>${d.error}</p></div>`; return; }
+    scrub.meta = d.meta; scrub.frames = d.frames; scrub.idx = 0;
+    if (!scrub.frames.length){
+      $("scrubBody").innerHTML = `<div class="empty"><h3>Empty or unreadable</h3>
+        <p>${d.bytes_discarded||0} bytes discarded, ${d.crc_errors||0} CRC errors — the file may be truncated or from a different protocol version than this server is running.</p></div>`;
+      return;
+    }
+    const slider = $("scrubSlider");
+    slider.max = String(scrub.frames.length - 1);
+    slider.value = "0";
+    renderScrubFrame(0);
+  }catch(err){
+    $("scrubBody").innerHTML = `<div class="empty"><h3>Could not reach the server</h3><p>${err}</p></div>`;
+  }
+}
+
+function closeScrubber(){
+  stopScrubPlay();
+  const el = $("scrubOverlay"); if (el) el.classList.remove("on");
+}
+
+function renderScrubFrame(idx){
+  idx = Math.max(0, Math.min(scrub.frames.length-1, idx));
+  scrub.idx = idx;
+  $("scrubSlider").value = String(idx);
+  const frame = scrub.frames[idx];
+  const t0 = scrub.frames[0].t_ms;
+  const elapsed = ((frame.t_ms - t0) & 0xFFFFFFFF) / 1000;
+  $("scrubPos").textContent = `frame ${idx+1}/${scrub.frames.length} · seq ${frame.seq} · t+${elapsed.toFixed(1)}s`;
+
+  const byNode = {}; scrub.meta.nodes.forEach(n=>byNode[n.node_id]=n);
+  const body = frame.nodes.map(rec=>{
+    const nodeMeta = byNode[rec.node_id];
+    const label = nodeMeta ? nodeMeta.label : `node ${rec.node_id}`;
+    const state = rec.stale?"stale":(rec.fault?"fault":"live");
+    const rows = rec.channels.map((c,i)=>{
+      const cdef = nodeMeta && nodeMeta.channels[i];
+      return `<tr><td>${cdef?cdef.name:"ch"+i}</td>
+        <td class="num" style="color:var(--amber)">${T.fmt(c.value)}</td>
+        <td class="num" style="color:var(--dim)">${cdef?cdef.unit:""}</td></tr>`;
+    }).join("");
+    return `<div class="card" style="min-width:260px;flex:1 1 260px;">
+      <h3>${label} <span class="node-state ${state}" style="margin-left:8px;">${state}</span></h3>
+      <table><tbody>${rows}</tbody></table>
+    </div>`;
+  }).join("");
+  $("scrubBody").innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:14px;">${body}</div>`;
+}
+
+function toggleScrubPlay(){
+  if (scrub.playing) { stopScrubPlay(); return; }
+  scrub.playing = true;
+  $("scrubPlay").textContent = "Pause";
+  const periodMs = (scrub.meta && scrub.meta.frame_period_ms) || 500;
+  scrub.timer = setInterval(()=>{
+    if (scrub.idx >= scrub.frames.length-1){ stopScrubPlay(); return; }
+    renderScrubFrame(scrub.idx+1);
+  }, periodMs);
+}
+function stopScrubPlay(){
+  scrub.playing = false;
+  $("scrubPlay").textContent = "Play";
+  if (scrub.timer){ clearInterval(scrub.timer); scrub.timer = null; }
+}
+
+/* ================= tabs / controls ================= */
+function showTab(name){
+  activeTab = name;
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.tab===name));
+  document.querySelectorAll(".tab").forEach(s=>s.classList.toggle("on", s.id==="tab-"+name));
+  try{ localStorage.setItem("pitwall.tab", name); }catch{}
+  // Repaint on arrival: hidden tabs skip their canvas work, so a tab that has
+  // just become visible would otherwise show stale or empty canvases until
+  // the next frame lands half a second later.
+  if(name==="map"){ drawMap(); requestAnimationFrame(drawMap); }
+  if(name==="stats") renderStats();
+  if(name==="logs") loadLogs();
+  if(name==="chart") Object.entries(lanes).forEach(([k,l])=>drawLane(l.canvas, store.series[k]||[]));
+  if(name==="gauge") Object.entries(gauges).forEach(([k,g])=>{
+    const s=store.stats[k]; if(s) drawGauge(g.canvas,s.last,g.range[0],g.range[1],false); });
+  if(name==="live") Object.entries(live).forEach(([k,L])=>{ if(L.spark) drawSpark(L.spark, store.series[k]||[]); });
+}
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
+
+const ORDER=["live","gauge","schem","chart","map","stats","logs"];
+addEventListener("keydown", e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT") return;
+  const n=parseInt(e.key,10);
+  if(n>=1&&n<=ORDER.length) showTab(ORDER[n-1]);
+  if(e.key.toLowerCase()==="f") toggleFreeze();
+});
+
+function toggleFreeze(){
+  store.frozen = !store.frozen;
+  const b=$("freeze");
+  b.textContent = store.frozen ? "Resume" : "Freeze";
+  b.classList.toggle("hot", store.frozen);
+  $("tip").textContent = store.frozen ? "FROZEN — display held, data still arriving" : "1–7 switch tabs · F freezes";
+}
+$("freeze").addEventListener("click", toggleFreeze);
+$("exportCsv").addEventListener("click", exportCsv);
+$("resetStats").addEventListener("click", ()=>{
+  Object.keys(store.stats).forEach(k=>store.stats[k]=null);
+  Object.keys(store.series).forEach(k=>store.series[k]=[]);
+  store.rows=[]; store.frames=0;
+  renderStats();
+});
+$("clearTrace").addEventListener("click", ()=>{
+  mapPts=[]; mapOrigin=null; mapDist=0;
+  $("mapHint").style.display=""; $("mapHint").textContent="trace cleared — waiting for movement…";
+  drawMap();
+});
+["window"].forEach(id=>$(id).addEventListener("change", ()=>{
+  if(activeTab==="chart") Object.entries(lanes).forEach(([k,l])=>drawLane(l.canvas, store.series[k]||[]));
+}));
+addEventListener("resize", ()=>{ if(activeTab==="map") drawMap(); });
+
+/* ================= connect ================= */
 T.connect({
-  onMeta: (m) => { meta = m; buildPanels(m); },
-  onStatus: applyStatus,
+  onOpen: ()=>{ $("link").textContent="online"; $("linkDot").classList.add("up"); },
+  onClose: ()=>{ $("link").textContent="reconnecting"; $("linkDot").classList.remove("up"); },
+  onMeta: build,
   onFrame: applyFrame,
-  onClose: () => {
-    ui.link.className = "link down";
-    ui.link.textContent = "APP NOT RUNNING";
-    ui.detail.textContent = "lost connection to the ground station";
-  },
+  onStatus: s=>{ $("age").textContent = s.last_frame_age_s==null?"--":s.last_frame_age_s.toFixed(1); setWire(s); },
 });
 
-// Redraw on resize so sparklines stay sharp on a scaled display.
-let resizeTimer;
-window.addEventListener("resize", () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => {
-    panels.forEach(p => p.chans.forEach(c => T.drawSpark(c.canvas, c.data, "#0a0a0a")));
-  }, 120);
-});
+try{ const t=localStorage.getItem("pitwall.tab"); if(t&&ORDER.includes(t)) showTab(t); }catch{}
 </script>
 </body>
 </html>

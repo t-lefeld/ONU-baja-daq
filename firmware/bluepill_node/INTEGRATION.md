@@ -33,13 +33,14 @@ avoiding.
 | 2nd Bluepill | 1 | 0x101 |
 | 3rd Bluepill | 2 | 0x102 |
 
-A 4th Bluepill project still sits in `firmware/projects/` with `NODE_ID=3`, but
-it is retired: the system was redesigned from 4 CAN nodes to 3, and its
-`telemetry_proto.h`/`.c` copies were deliberately left unsynced with the
-current protocol. `can_node.h` now `#error`s at compile time for any
-`NODE_ID >= TLM_NODE_COUNT` (3), so that project won't build as-is - which is
-the point: it stops a stale 4th board from ever being flashed and arbitrating
-against a CAN ID nothing else expects.
+A 4th Bluepill project existed at `firmware/projects/` with `NODE_ID=3` when
+the system still had 4 CAN nodes; once it was redesigned down to 3, that
+project was deliberately left unsynced with the current protocol as a
+guardrail (`can_node.h` `#error`s at compile time for any
+`NODE_ID >= TLM_NODE_COUNT`, so it wouldn't build as-is). It was deleted
+outright on 2026-08-16, once v2 bench testing confirmed the 3-node system
+works without it - there's no longer a stale 4th board sitting around to
+guard against.
 
 A header rather than a `-D` build symbol: it is visible when you open the
 project, survives CubeMX regeneration, and does not vanish if a build

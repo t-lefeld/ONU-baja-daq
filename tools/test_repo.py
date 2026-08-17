@@ -12,11 +12,11 @@ building against a stale header that still compiles and produces subtly wrong
 frames.
 
 Note on "4th Bluepill": the system was redesigned from 4 CAN nodes down to 3
-(TLM_NODE_COUNT == 3). That project directory is intentionally left as-is,
-NODE_ID == 3 and all - it is retired, not synced, and will fail to compile
-with the current protocol/telemetry_proto.h if anyone tries (NODE_ID would
-exceed TLM_NODE_COUNT-1). That is deliberate: it stops a forgotten 4th board
-from ever being flashed and colliding on the bus.
+(TLM_NODE_COUNT == 3). The project directory for it was deleted outright on
+2026-08-16 (Tate's call - he wanted it gone rather than kept around as a
+retired/unsynced guardrail) once the v2 bench tests confirmed the 3-node
+system works without it. There is no board left to accidentally flash, so
+there's nothing here to check for it anymore.
 
 Also checks the things a fresh clone needs to be true: every project has its
 files, node IDs are unique and correctly ordered, the .ioc edits are present,
@@ -34,7 +34,6 @@ ROOT = Path(__file__).resolve().parent.parent
 PROJ = ROOT / "firmware" / "projects"
 
 BLUEPILLS = ["1st Bluepill", "2nd Bluepill", "3rd Bluepill"]
-RETIRED_BLUEPILL = "4th Bluepill"  # dropped when the system went to 3 nodes; not synced
 NUCLEO = "Nucleo CAN Bus Test"
 
 # v1 -> v2 cutover (see HANDOFF.md): Front/Rear + the hub now run the v2
@@ -150,17 +149,22 @@ def test_copies_match() -> None:
     # All three active Bluepills got the same mechanical v2 edit (can_node.h
     # -> can_node_v2.h, can_node_init/task -> can_node_v2_init/task) applied
     # to the same starting template - node identity lives entirely in
-    # node_id.h, not main.c - so all three main.c files should agree with
-    # each other byte-for-byte even though none of them matches the v1
-    # template anymore.
-    v2_mains = {p: (PROJ / p / "Core" / "Src" / "main.c").read_bytes() for p in all_v2_bluepills}
-    first_v2, *rest_v2 = all_v2_bluepills
-    for p in rest_v2:
-        ok(f"{p}: main.c matches {first_v2} (same v2 edit applied to both)",
-           v2_mains[p] == v2_mains[first_v2])
+    # node_id.h, not main.c. Through the end of v2 bench testing this meant
+    # all three main.c files agreed byte-for-byte, since none of them had
+    # any board-specific peripherals yet.
+    #
+    # UPDATED 2026-08-16 for v3: that byte-identity assumption breaks by
+    # design once real per-board sensors get wired in - CubeMX regenerates
+    # main.c's MX_*_Init() calls to match whatever peripherals THAT board's
+    # .ioc actually has (Front's ADC1_IN6/IN7 pressure transducers, Rear's
+    # I2C1 CVT thermistor, etc.), so Front/Rear/motor-standin main.c files
+    # are now expected to diverge. The real invariant - that the v2 cutover
+    # (can_node_v2.h include, v2 init/task calls, CAN timing matching the
+    # .ioc) was applied correctly to each board - is already checked above,
+    # per-board, independent of whether the boards match each other. This
+    # byte-identity check is intentionally gone; don't re-add it as boards
+    # keep diverging through the rest of v3 bring-up.
 
-    ok(f"{RETIRED_BLUEPILL}: still present but intentionally unsynced",
-       (PROJ / RETIRED_BLUEPILL / "Core" / "Inc" / "node_id.h").exists())
 
 
 def test_node_ids() -> None:
@@ -315,11 +319,28 @@ def test_main_wiring() -> None:
     # TEMPORARY, 2026-08-14: the 1st Bluepill is transmitting real CAN pages
     # for node 3 (motor stand-in) during the v2 bench test, so the hub must
     # not ALSO fabricate node 3 locally - both would write s_reasm[3] and
-    # interleave two epochs into one torn burst. Must be defined before the
-    # #include, or the header's #ifndef default (1, simulate) wins instead.
-    m = re.search(r"#define\s+HUB2_SIMULATE_NODE3\s+0\s*\n\s*#include \"telemetry_hub_v2\.h\"", text)
-    ok("Nucleo: HUB2_SIMULATE_NODE3 disabled before the v2 hub include "
-       "(motor stand-in is on the bus)", m is not None)
+    # interleave two epochs into one torn burst.
+    #
+    # CORRECTED, 2026-08-16: this MUST be a compiler -D flag, not a #define in
+    # main.c - found the hard way on the bench, where a main.c #define here
+    # silently did nothing for weeks. main.c and telemetry_hub_v2.c are
+    # separate translation units; telemetry_hub_v2.c does its own #include of
+    # telemetry_hub_v2.h, which never sees a #define placed in main.c, so the
+    # header's #ifndef default (1, simulate) always won regardless of what
+    # main.c said. The old regex check for a main.c #define is deliberately
+    # gone - that pattern is now known-wrong and should never come back.
+    # Checking both build systems' actual -D mechanism instead.
+    ok("Nucleo: main.c does NOT use the broken main.c-#define pattern for "
+       "HUB2_SIMULATE_NODE3 (silently no-ops - see telemetry_hub_v2.h)",
+       not re.search(r"#define\s+HUB2_SIMULATE_NODE3\s+0", text))
+    pio_nucleo = read(PROJ / NUCLEO / "platformio.ini")
+    ok("Nucleo: platformio.ini defines HUB2_SIMULATE_NODE3=0 as a build flag "
+       "(motor stand-in is on the bus)",
+       "-D HUB2_SIMULATE_NODE3=0" in pio_nucleo)
+    cproject = read(PROJ / NUCLEO / ".cproject")
+    ok("Nucleo: .cproject defines HUB2_SIMULATE_NODE3=0 as a preprocessor "
+       "symbol (motor stand-in is on the bus)",
+       cproject.count('value="HUB2_SIMULATE_NODE3=0"') >= 2)
     # v1's telemetry_hub.c is still mirrored in (untouched, per the "never
     # modify v1 files" rule) but must be excluded from the build - both files
     # define HAL_CAN_RxFifo0MsgPendingCallback as a strong symbol, so linking
@@ -330,7 +351,6 @@ def test_main_wiring() -> None:
     ok("Nucleo: v1 hub_init not called",
        "hub_init(&hcan1, &huart1, &huart2);" not in text)
     ok("Nucleo: v1 hub_task not called", "hub_task();" not in text)
-    cproject = read(PROJ / NUCLEO / ".cproject")
     ok("Nucleo: .cproject excludes v1 telemetry_hub.c from the build",
        cproject.count('excluding="Core/Src/telemetry_hub.c"') >= 2)
 
@@ -428,8 +448,23 @@ def test_pc_app() -> None:
     # text. Stop at the attribute's closing double quote, not the first
     # space or single quote, or the strip barely gets past "image/svg+xml,".
     no_data_uris = re.sub(r'data:[^"]*', '', html)
+    # XML/SVG namespace URIs (xmlns="http://www.w3.org/2000/svg" and the
+    # same string passed to document.createElementNS in inline <script>) are
+    # inert identifiers required by the SVG spec, not network fetches - an
+    # inline <svg viewBox=...> schematic (added 2026-08-16) needs one and
+    # isn't a wifi dependency. Strip known-safe namespace URIs specifically,
+    # rather than every "http://" substring, so an actual <link>/<script
+    # src>/@import/fetch() to a real origin still fails this check.
+    SAFE_NS_URIS = (
+        "http://www.w3.org/2000/svg",
+        "http://www.w3.org/1999/xhtml",
+        "http://www.w3.org/1999/xlink",
+    )
+    checked = no_data_uris
+    for uri in SAFE_NS_URIS:
+        checked = checked.replace(uri, "")
     ok("UI loads no external http(s) resources",
-       "http://" not in no_data_uris and "https://" not in no_data_uris)
+       "http://" not in checked and "https://" not in checked)
 
     # WebSocket message dispatch (meta/status/history/frame) now lives in the
     # shared module every themed page includes, not inline in index.html -

@@ -343,6 +343,59 @@ def test_serial_open_failure() -> None:
         sources.serial = real                                # type: ignore[assignment]
 
 
+def test_replay_large_file() -> None:
+    print("-- replay: a log bigger than one buffer's worth replays in full")
+    from telemetry import protocols, proto_v2, sources
+
+    # Regression test for a real bug found 2026-08-16: ReplaySource read a
+    # whole .tlm file into memory but handed it to a StreamParser with the
+    # default 4096-byte max_buffer (sized for a LIVE link fed in small
+    # chunks, not a replay fed the whole file at once). feed() discards
+    # excess from the FRONT before parsing a single frame, so any recording
+    # longer than ~4096 bytes silently played only its last few seconds -
+    # exactly the kind of failure that looks like "it worked" (frames DO
+    # arrive and decode cleanly) right up until you notice most of the
+    # session is missing. 80 bytes/frame * 100 frames = 8000 bytes, twice
+    # the old cap, so a regression here reliably drops the first ~48 frames.
+    real_proto = protocols.active_name()
+    protocols.use(protocols.V2)
+    try:
+        n_frames = 100
+        chunks = []
+        for seq in range(n_frames):
+            nodes = [
+                proto_v2.NodeRecord(
+                    node_id, proto_v2.NF_ONLINE, seq & 0xFF, 0,
+                    tuple(0 for _ in proto_v2.CHANNELS[node_id]),
+                )
+                for node_id in range(proto_v2.NODE_COUNT)
+            ]
+            frame = proto_v2.Frame(seq, seq * 500, nodes)
+            chunks.append(proto_v2.encode_frame(frame))
+        data = b"".join(chunks)
+        check("test log is bigger than the old 4096-byte default", len(data) > 4096, True)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "LOG0001.TLM"
+            path.write_bytes(data)
+
+            src = sources.ReplaySource(path, speed=0, loop=False)
+
+            async def scenario():
+                return [f async for f in src.frames()]
+
+            got = asyncio.run(scenario())
+
+            check("every frame in the file was decoded, not just the tail",
+                  len(got), n_frames)
+            check("first frame is really the first one (seq 0), "
+                  "not one truncation left it starting mid-file",
+                  got[0].seq if got else None, 0)
+            check("no bytes silently discarded", src.parser.bytes_discarded, 0)
+    finally:
+        protocols.use(real_proto)
+
+
 # ====================================================================
 # server
 # ====================================================================
@@ -375,6 +428,25 @@ def test_server() -> None:
                 # the module that makes those calls.
                 ok("index is the dashboard",
                    "Telemetry" in html and "telemetry-core.js" in html)
+
+                # The check above only proves the string is present in the
+                # HTML, not that the path it names actually resolves against
+                # how the server mounts static assets - a relative
+                # "js/telemetry-core.js" versus the server's "/static/"
+                # mount is exactly the kind of thing that renders fine as
+                # text but 404s in a real browser (bit us 2026-08-14, see
+                # HANDOFF.md). Extract every local <script src> / <link
+                # href> from the served HTML and actually fetch each one.
+                import re as _re
+                local_assets = [
+                    m for m in _re.findall(r'(?:src|href)="([^"]+)"', html)
+                    if not m.startswith(("http://", "https://", "data:"))
+                ]
+                ok("index references at least one local asset (e.g. the JS bundle)",
+                   len(local_assets) > 0)
+                for asset in local_assets:
+                    r = await s.get(f"http://127.0.0.1:8793{asset}")
+                    check(f"local asset resolves: {asset}", r.status, 200)
 
                 r = await s.get("http://127.0.0.1:8793/api/status")
                 st = await r.json()
@@ -443,6 +515,85 @@ def test_server_missing_static() -> None:
         _ = paths
 
 
+def test_server_log_scrub() -> None:
+    print("-- server: log scrubber endpoint (/api/log/<rel>)")
+    from aiohttp import ClientSession, web
+
+    from telemetry import protocols, proto_v2, server, sources
+    from telemetry.server import TelemetryServer
+
+    real_field_data = server.FIELD_DATA_DIR
+    real_proto = protocols.active_name()
+
+    async def scenario(field_data_dir: Path):
+        # SimulatorSource only speaks v1 (see sources.py) - build it while
+        # v1 is still active, then switch to v2 afterward. meta()/the scrub
+        # endpoint read the active protocol at call time, not at server
+        # construction time, so this ordering is fine and doesn't need a
+        # working v2 live source at all (the scrub endpoint never touches
+        # `srv.pump.source`, only the file it's asked to decode).
+        srv = TelemetryServer(sources.SimulatorSource())
+        protocols.use(protocols.V2)
+        runner = web.AppRunner(srv.build_app())
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 8795)
+        await site.start()
+
+        try:
+            async with ClientSession() as s:
+                # Not found: no such log.
+                r = await s.get("http://127.0.0.1:8795/api/log/nope.tlm")
+                check("missing log reports 404", r.status, 404)
+
+                # Path traversal: refused, not resolved against the real filesystem.
+                r = await s.get("http://127.0.0.1:8795/api/log/../../../../etc/passwd")
+                ok("path traversal rejected, not 200",
+                   r.status in (400, 404))
+
+                # A real log, bigger than one old-default parser buffer -
+                # same regression this endpoint would otherwise inherit from
+                # ReplaySource's 2026-08-16 bug (see test_replay_large_file).
+                n_frames = 60
+                chunks = []
+                for seq in range(n_frames):
+                    nodes = [
+                        proto_v2.NodeRecord(
+                            node_id, proto_v2.NF_ONLINE, seq & 0xFF, 0,
+                            tuple(0 for _ in proto_v2.CHANNELS[node_id]),
+                        )
+                        for node_id in range(proto_v2.NODE_COUNT)
+                    ]
+                    chunks.append(proto_v2.encode_frame(proto_v2.Frame(seq, seq * 500, nodes)))
+                data = b"".join(chunks)
+                check("test log exceeds the old 4096-byte default", len(data) > 4096, True)
+
+                sub = field_data_dir / "2026-08-16_scrub_test"
+                sub.mkdir()
+                (sub / "LOG0001.TLM").write_bytes(data)
+
+                r = await s.get("http://127.0.0.1:8795/api/log/2026-08-16_scrub_test/LOG0001.TLM")
+                check("scrub request succeeds", r.status, 200)
+                body = await r.json()
+                check("every frame decoded, none dropped to the old buffer cap",
+                      len(body["frames"]), n_frames)
+                check("no bytes discarded", body["bytes_discarded"], 0)
+                check("first frame really is seq 0", body["frames"][0]["seq"], 0)
+                check("last frame really is seq n-1", body["frames"][-1]["seq"], n_frames - 1)
+                ok("meta describes the v2 channel set",
+                   body["meta"]["node_count"] == proto_v2.NODE_COUNT)
+        finally:
+            await runner.cleanup()
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            field_data_dir = Path(td)
+            server.FIELD_DATA_DIR = field_data_dir           # type: ignore[assignment]
+            asyncio.run(scenario(field_data_dir))
+    finally:
+        server.FIELD_DATA_DIR = real_field_data              # type: ignore[assignment]
+        protocols.use(real_proto)
+
+
 # ====================================================================
 
 
@@ -455,8 +606,10 @@ def main() -> int:
         test_port_fallback,
         test_serial_reconnect,
         test_serial_open_failure,
+        test_replay_large_file,
         test_server,
         test_server_missing_static,
+        test_server_log_scrub,
     ):
         try:
             fn()

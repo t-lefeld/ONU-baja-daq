@@ -94,8 +94,9 @@ system (check Device Manager on Windows, or `ls /dev/ttyACM*` on Linux/macOS).
 
 - **Only `Core/Inc/node_id.h` differs** between the 1st/2nd/3rd Bluepill
   projects - the `platformio.ini` in each is otherwise identical.
-- **`4th Bluepill` intentionally has no `platformio.ini`** - it's retired and
-  won't compile against the current `TLM_NODE_COUNT`, same as in CubeIDE.
+- **`4th Bluepill` was deleted 2026-08-16** - it was retired when the system
+  went from 4 CAN nodes to 3, then removed outright once v2 bench testing
+  confirmed 3 nodes was correct. Only three Bluepill projects remain.
 - **`src_dir = .` must live in a `[platformio]` section**, not inside
   `[env:...]` - it's silently ignored there, which looks like the setting
   "didn't do anything" if you miss this.
