@@ -18,10 +18,11 @@ import asyncio
 import logging
 import math
 import random
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from .protocols import active
 from .proto import Frame  # noqa: F401 - type annotations only; runtime
@@ -103,6 +104,57 @@ def guess_port() -> str | None:
     return ports[0][0]
 
 
+def guess_vcp_port() -> str | None:
+    """
+    Best guess at which port the Nucleo hub's ST-Link Virtual COM Port is on.
+
+    Same reasoning as guess_port(), aimed the opposite direction: guess_port()
+    actively avoids an ST-Link so it does not mistake a debug VCP for the E22
+    radio dongle; this is the counterpart that goes looking for that exact
+    port on purpose, for VcpSource's wired-hub use case.
+
+    ST-Link's USB VID is fixed (0x0483, STMicroelectronics) regardless of
+    which ST-Link firmware or Windows driver build is on the host, so it is
+    checked first and is the reliable match. list_ports() above throws the
+    vid/pid away to keep its (device, description) tuple simple for the
+    E22 case, which never needed it - so this function calls
+    serial.tools.list_ports.comports() directly instead of going through
+    list_ports(), rather than widening that helper's return type for one
+    caller.
+
+    The description-substring fallback ("STMicroelectronics STLink Virtual
+    COM Port" / "STLink VCP" depending on driver version) exists for the case
+    where a WinUSB/libusb backend or an older driver does not surface vid/pid
+    to pyserial at all - seen in practice on some CH340/CP210x style installs
+    and worth the same defensiveness here even though ST's official driver is
+    well-behaved about it.
+    """
+    if serial is None:
+        return None
+
+    try:
+        ports = list(serial.tools.list_ports.comports())
+    except Exception as exc:  # noqa: BLE001 - enumeration can fail on odd drivers
+        log.debug("Port enumeration failed: %s", exc)
+        return None
+
+    if not ports:
+        return None
+
+    STLINK_VID = 0x0483
+
+    for p in ports:
+        if p.vid == STLINK_VID:
+            return p.device
+
+    for p in ports:
+        desc = (p.description or "").lower()
+        if "stlink" in desc or "st-link" in desc:
+            return p.device
+
+    return None
+
+
 class SerialSource(FrameSource):
     """
     Reads the E22 USB dongle (or any UART carrying the frame stream).
@@ -114,12 +166,18 @@ class SerialSource(FrameSource):
 
     RETRY_DELAY = 2.0
 
+    # Overridden by VcpSource so the dashboard header reads "hub VCP ..."
+    # instead of "serial ..." without either class having to duplicate the
+    # two f-strings (here and in _open()) that build self.name.
+    LABEL = "serial"
+
     def __init__(
         self,
         port: str | None = None,
         baud: int = 9600,
         raw_log: Path | None = None,
         reconnect: bool = True,
+        port_guesser: Callable[[], str | None] = guess_port,
     ) -> None:
         if serial is None:
             raise RuntimeError("pyserial is not installed - run: pip install pyserial")
@@ -129,8 +187,17 @@ class SerialSource(FrameSource):
         self.reconnect = reconnect
         self.parser = active().StreamParser()
 
+        # Pluggable rather than hardcoded to guess_port() so VcpSource below
+        # can reuse this entire class - connection state machine, reconnect
+        # loop, raw logging, stats - and only swap out WHICH port gets picked
+        # when none is named explicitly. The alternative (VcpSource
+        # duplicating frames()/_open()/_drop()/_read() with guess_vcp_port()
+        # pasted in) is exactly the kind of second copy that drifts from the
+        # original the next time SerialSource's reconnect logic changes.
+        self._port_guesser = port_guesser
+
         self.port: str | None = port
-        self.name = f"serial {port or 'auto'} @ {baud}"
+        self.name = f"{self.LABEL} {port or 'auto'} @ {baud}"
         self.link_state = LINK_WAITING
         self.detail = "not connected yet"
 
@@ -146,7 +213,7 @@ class SerialSource(FrameSource):
     # ---------------- connection management ----------------
 
     def _open(self) -> bool:
-        port = self.requested_port or guess_port()
+        port = self.requested_port or self._port_guesser()
 
         if port is None:
             self.link_state = LINK_WAITING
@@ -162,7 +229,7 @@ class SerialSource(FrameSource):
             return False
 
         self.port = port
-        self.name = f"serial {port} @ {self.baud}"
+        self.name = f"{self.LABEL} {port} @ {self.baud}"
         self.link_state = LINK_LIVE
         self.detail = "connected"
         self.connects += 1
@@ -175,7 +242,7 @@ class SerialSource(FrameSource):
         except Exception:  # noqa: BLE001
             pass
 
-        log.info("Serial connected: %s at %d baud", port, self.baud)
+        log.info("%s connected: %s at %d baud", self.LABEL, port, self.baud)
 
         if self._raw_path and self._raw_log is None:
             try:
@@ -193,7 +260,7 @@ class SerialSource(FrameSource):
                 pass
             self._ser = None
             self.disconnects += 1
-            log.warning("Serial disconnected: %s", why)
+            log.warning("%s disconnected: %s", self.LABEL, why)
 
         self.link_state = LINK_WAITING if self.reconnect else LINK_ERROR
         self.detail = why
@@ -275,6 +342,76 @@ class SerialSource(FrameSource):
 
 
 # ====================================================================
+# Live serial, over the hub's ST-Link VCP instead of the E22 dongle
+# ====================================================================
+
+
+class VcpSource(SerialSource):
+    """
+    Reads the Nucleo hub over its ST-Link Virtual COM Port (USB), instead of
+    the E22 LoRa dongle SerialSource above was written for.
+
+    This is a thin subclass, not a second parser. The hub firmware writes the
+    SAME binary frame stream (sync bytes, header, per-node records, CRC) to
+    USART2 (the VCP) that it already writes to USART1 (the E22) - see
+    firmware/nucleo_hub/telemetry_hub.h's TLM_MIRROR_TO_VCP-style debug
+    mirror and NODE_INTEGRATION_V2.md. So everything SerialSource already
+    does right - StreamParser resync on garbage, reconnect-on-unplug,
+    raw_log capture, the connects/disconnects/bytes_read stats - is exactly
+    right here too. The only things that differ are:
+
+      1. which port to guess when none is given (an ST-Link, not a CH340), and
+      2. the default baud rate.
+
+    Rewriting the read/parse/reconnect loop a second time for "USB instead of
+    a USB-serial dongle" would be duplicating code that has nothing to do
+    with the actual difference between the two links - the transport on the
+    wire is identical, only which physical port carries it changes. That is
+    exactly the kind of drift this class structure is meant to avoid (see
+    SimulatorSourceV2's docstring below for the same argument applied to
+    "don't fork the simulator too").
+
+    Baud: 115200. firmware/nucleo_hub/INTEGRATION.md ("Watch USART2 at
+    115200 through the ST-Link VCP...") is the only place in the repo that
+    states USART2's rate explicitly; firmware/PINOUT.md documents PA2/PA3 as
+    USART2 / "ST-Link Virtual COM Port" but does not repeat the baud there,
+    and firmware/CUBEMX_SETUP.md's baud rate table only covers CAN1 (500000)
+    and USART1 (9600, the E22 link) - it has no USART2 row at all. 115200 is
+    also the de facto standard rate for an ST-Link VCP used as a debug/log
+    console (what USART2 was for before this task repurposed it to also
+    carry binary frames), which is corroborating evidence, not the primary
+    source - INTEGRATION.md's explicit number is. If the firmware side ends
+    up on a different rate, this is the one line to change.
+    """
+
+    LABEL = "hub VCP"
+
+    def __init__(
+        self,
+        port: str | None = None,
+        baud: int = 115200,
+        raw_log: Path | None = None,
+        reconnect: bool = True,
+    ) -> None:
+        super().__init__(
+            port=port,
+            baud=baud,
+            raw_log=raw_log,
+            reconnect=reconnect,
+            port_guesser=guess_vcp_port,
+        )
+        # SerialSource.__init__ already set self.name/self.detail using
+        # LABEL, so this is redundant right after construction - it earns
+        # its keep once _open() starts overwriting self.name on every
+        # (re)connect with the same f"{self.LABEL} ..." format, which by
+        # construction already reads "hub VCP ..." rather than "serial ...".
+        # Kept explicit anyway so a reader of just __init__ does not have to
+        # go trust a base-class detail to know this source announces itself
+        # as the wired hub link and not the radio.
+        self.detail = "not connected yet (wired hub link, not the radio)"
+
+
+# ====================================================================
 # Simulator
 # ====================================================================
 
@@ -297,19 +434,16 @@ class SimulatorSource(FrameSource):
         # three engineering values per node, and NodeRecord is built with v1's
         # can_seq field, which v2 does not have (it uses a per-burst epoch).
         #
-        # Rather than grow a second full-sensor-suite simulator here, point at
-        # the one that already exists and is already tested. simulation/ builds
-        # 24 channels across 4 nodes and round-trips them through the real v2
-        # codec, and tools/test_channel_sync.py keeps its channel table locked
-        # to the firmware's. A copy of that logic living here too would be a
-        # second thing to keep in sync, which is the exact drift that test was
-        # written to prevent.
+        # This class stays v1-only on purpose. v2 synthetic data comes from
+        # SimulatorSourceV2 below, which borrows simulation/vehicle_data.py
+        # rather than growing a second set of waveforms here - see its
+        # docstring for why that matters.
         if active().NODE_COUNT != 3:
             raise RuntimeError(
-                "the built-in simulator only produces v1 (3-node) frames.\n"
-                "For a v2 synthetic feed use the dedicated simulator instead:\n"
-                "    cd simulation && python run_sim.py\n"
-                "--proto v2 here is for real v2 data over serial or --replay."
+                "SimulatorSource only produces v1 (3-node) frames.\n"
+                "Use SimulatorSourceV2 for a v2 feed - run.py picks the right\n"
+                "one automatically from --proto, so seeing this means something\n"
+                "constructed this class directly with v2 active."
             )
 
         self.drop_rate = drop_rate
@@ -368,6 +502,155 @@ class SimulatorSource(FrameSource):
             )
 
         frame = active().Frame(seq=self._seq & 0xFFFF, t_ms=int(t * 1000) & 0xFFFFFFFF, nodes=records)
+        self._seq += 1
+        return frame
+
+    async def frames(self) -> AsyncIterator[Frame]:
+        period = active().FRAME_PERIOD_MS / 1000.0
+        next_at = time.monotonic()
+        while True:
+            next_at += period
+            await asyncio.sleep(max(0.0, next_at - time.monotonic()))
+            yield self._build()
+
+
+def _load_vehicle_data():
+    """
+    Import simulation/vehicle_data.py, which lives in a sibling directory of
+    pc_app/ rather than inside the telemetry package.
+
+    Why import it at all instead of writing v2 waveforms here: vehicle_data.py
+    already defines all 24 channels across the 4 v2 nodes, and
+    tools/test_channel_sync.py asserts its NODES table matches
+    telemetry_proto_v2.c's TLM2_CHANNELS name-for-name and unit-for-unit. That
+    test is the thing keeping synthetic data honest about the real wire format.
+    A second copy of the channel list living in this file would not be covered
+    by it, so the two would drift apart silently - and a simulator that lies
+    about the channel layout is worse than no simulator, because the dashboard
+    would look fine right up until real hardware disagreed with it.
+
+    The cost is this import dance. simulation/ is not a package and is not on
+    sys.path, so it gets added at call time. In a PyInstaller build there is no
+    simulation/ directory on disk at all - telemetry.spec adds it to pathex and
+    names vehicle_data in hiddenimports, so the module is frozen in and the
+    plain `import vehicle_data` below succeeds without the path insert.
+    """
+    try:
+        import vehicle_data  # type: ignore[import-not-found]
+        return vehicle_data
+    except ImportError:
+        pass
+
+    sim_dir = Path(__file__).resolve().parent.parent.parent / "simulation"
+    if not (sim_dir / "vehicle_data.py").is_file():
+        raise RuntimeError(
+            f"v2 simulator needs simulation/vehicle_data.py, not found at {sim_dir}.\n"
+            "Running from a source checkout? That directory is part of the repo.\n"
+            "Running the frozen .exe? It was built without simulation/ bundled - "
+            "check pathex/hiddenimports in pc_app/telemetry.spec."
+        )
+
+    sys.path.insert(0, str(sim_dir))
+    import vehicle_data  # type: ignore[import-not-found]
+    return vehicle_data
+
+
+class SimulatorSourceV2(FrameSource):
+    """
+    Synthetic v2 data: 24 channels across 4 nodes, no hardware attached.
+
+    Where the numbers come from: simulation/vehicle_data.py, which models a
+    car running laps of a course - speed trace, cornering, suspension travel,
+    CVT and motor thermals warming up over the session. It is the same
+    generator simulation/run_sim.py has always used; this class just adapts
+    its output into the Frame/NodeRecord objects the rest of the app consumes,
+    so the built Telemetry.exe can produce v2 test data on its own instead of
+    making you run a second program.
+
+    Adapting rather than re-implementing is the whole point - see
+    _load_vehicle_data() above for why a local copy of the channel table would
+    be a liability.
+
+    One real difference from SimulatorSource (v1): v2 has no per-node can_seq.
+    It uses an `epoch` counter that increments once per burst of CAN pages,
+    so that is what gets advanced here.
+    """
+
+    def __init__(self, drop_rate: float = 0.0, offline_node: int | None = None) -> None:
+        self.name = "simulator (v2)"
+        self.link_state = LINK_NA
+        self.detail = "synthetic data, no hardware - 24 channels, 4 nodes"
+
+        if active().NODE_COUNT != 4:
+            raise RuntimeError(
+                f"SimulatorSourceV2 expects the v2 protocol (4 nodes), but the "
+                f"active protocol has {active().NODE_COUNT}. Pass --proto v2."
+            )
+
+        self._vd = _load_vehicle_data()
+
+        # Guard against the two tables having drifted despite test_channel_sync.
+        # Cheap to check, and the failure it prevents - silently packing the
+        # wrong number of values into a node record - is otherwise a confusing
+        # struct.error deep inside the codec.
+        if self._vd.NODE_COUNT != active().NODE_COUNT:
+            raise RuntimeError(
+                f"simulation/vehicle_data.py has {self._vd.NODE_COUNT} nodes but "
+                f"the v2 protocol has {active().NODE_COUNT}. "
+                f"Run tools/test_channel_sync.py - these are meant to match."
+            )
+
+        self.drop_rate = drop_rate
+        self.offline_node = offline_node
+        self._t0 = time.monotonic()
+        self._seq = 0
+        self._epoch = [0] * active().NODE_COUNT
+
+    def _build(self) -> Frame:
+        t = time.monotonic() - self._t0
+        sample = self._vd.sample_frame(self._seq, t)
+        records = []
+
+        for node in range(active().NODE_COUNT):
+            defs = active().CHANNELS[node]
+
+            if node == self.offline_node:
+                records.append(active().NodeRecord(
+                    node_id=node,
+                    flags=active().NF_STALE,
+                    epoch=self._epoch[node],
+                    loss=0,
+                    raw=tuple(0 for _ in defs),
+                ))
+                continue
+
+            values = [c["value"] for c in sample["nodes"][node]["channels"]]
+            if len(values) != len(defs):
+                raise RuntimeError(
+                    f"node {node}: vehicle_data gave {len(values)} channels, "
+                    f"protocol expects {len(defs)}. Run tools/test_channel_sync.py."
+                )
+
+            # Each snapshot covers several CAN bursts; drop_rate is applied per
+            # burst so the reported loss count means the same thing it does on
+            # real hardware.
+            bursts = max(1, active().FRAME_PERIOD_MS // active().NODE_TX_PERIOD_MS)
+            lost = sum(1 for _ in range(bursts) if random.random() < self.drop_rate)
+            self._epoch[node] = (self._epoch[node] + bursts) & 0xFF
+
+            records.append(active().NodeRecord(
+                node_id=node,
+                flags=active().NF_ONLINE,
+                epoch=self._epoch[node],
+                loss=min(lost, 255),
+                raw=tuple(d.to_raw(v) for d, v in zip(defs, values)),
+            ))
+
+        frame = active().Frame(
+            seq=self._seq & 0xFFFF,
+            t_ms=int(t * 1000) & 0xFFFFFFFF,
+            nodes=records,
+        )
         self._seq += 1
         return frame
 

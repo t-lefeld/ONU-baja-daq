@@ -420,6 +420,34 @@ void hub_task(void)
     }
 #endif
 
+#if HUB_BINARY_UART
+    /*
+     * Mirror the EXACT bytes that just went to the radio and the SD card -
+     * s_txbuf/n, not a second encode. That identity is the whole feature: the
+     * PC side reuses the existing frame parser unchanged, and a mirror that
+     * re-serialised independently could drift from the real wire format
+     * without any test noticing.
+     *
+     * Non-blocking, and dropped rather than deferred, on purpose. A 34-byte
+     * frame at 115200 baud is ~3 ms of blocking HAL_UART_Transmit. The frame
+     * period is TLM_FRAME_PERIOD_MS and HUB_CAN_QUEUE_LEN is sized to absorb
+     * SD stalls, not additional UART stalls - so spending milliseconds here
+     * would eat into exactly the margin that keeps CAN frames from being
+     * dropped. The mirror is a diagnostic convenience; CAN capture and SD
+     * logging are the mission. If the VCP is still busy with the previous
+     * frame (host not reading, or a slow terminal), skip this one and count
+     * it. A gap in the mirror stream is harmless - the parser resyncs on the
+     * next frame's sync bytes, and the SD log remains complete regardless.
+     */
+    if (s_debug != NULL)
+    {
+        if (HAL_UART_Transmit_DMA(s_debug, s_txbuf, (uint16_t)n) != HAL_OK)
+        {
+            s_stats.vcp_dropped++;
+        }
+    }
+#endif
+
 #if HUB_DEBUG_UART
     debug_print(&s_frame);
 #endif

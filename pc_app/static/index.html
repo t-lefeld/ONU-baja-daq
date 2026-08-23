@@ -188,6 +188,19 @@
   .empty code, td code{font-family:'Consolas','Courier New',monospace;color:var(--amber);}
   .warn{color:var(--bad);font-size:11px;display:block;margin-top:3px;}
 
+  /* ---- ground station app-logs panel (distinct from field_data/ above) ---- */
+  .applogs-card{margin-top:22px;}
+  .applogs-note{margin:0 0 14px;font-size:12px;line-height:1.6;color:var(--dim);}
+  .applogs-summary{font-size:13px;color:var(--text);margin-bottom:14px;font-family:'Consolas','Courier New',monospace;}
+  .applogs-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .applogs-controls label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);}
+  .applogs-controls input[type=number]{width:80px;background:#0d1112;border:1px solid var(--bezel);
+    border-radius:3px;color:var(--text);padding:6px 8px;font-family:'Consolas','Courier New',monospace;font-size:13px;}
+  #appLogsResult{margin-top:14px;font-size:12px;line-height:1.7;}
+  #appLogsResult .warn{margin-top:0;}
+  #appLogsResult ul{margin:8px 0 0;padding-left:18px;color:var(--dim);}
+  #appLogsResult li{font-family:'Consolas','Courier New',monospace;font-size:11px;}
+
   footer{padding:0 22px 30px;font-family:'Consolas','Courier New',monospace;font-size:11px;
     color:var(--dim);text-align:center;}
 
@@ -313,7 +326,24 @@
   </section>
 
   <section class="tab" id="tab-stats"><div id="statsHost"></div></section>
-  <section class="tab" id="tab-logs"><div id="logsHost"><div class="empty"><p>Loading…</p></div></div></section>
+  <section class="tab" id="tab-logs">
+    <div id="logsHost"><div class="empty"><p>Loading…</p></div></div>
+
+    <div class="card applogs-card">
+      <h3>Ground station logs</h3>
+      <p class="applogs-note">This panel manages the ground station's own rotating session logs on this
+        PC — <strong>not</strong> the <code>field_data/</code> captures listed above. It can never see or
+        delete anything under <code>field_data/</code>.</p>
+      <div id="appLogsSummary" class="applogs-summary">Loading…</div>
+      <div class="applogs-controls">
+        <label for="appLogsKeep">Keep newest</label>
+        <input type="number" id="appLogsKeep" min="0" step="1" value="10">
+        <button class="btn" id="appLogsPreview">Preview</button>
+        <button class="btn hot" id="appLogsDelete" disabled>Delete</button>
+      </div>
+      <div id="appLogsResult"></div>
+    </div>
+  </section>
 </main>
 
 <footer id="foot">--</footer>
@@ -794,6 +824,100 @@ async function loadLogs(){
   }
 }
 
+/* ================= ground station app-logs panel =================
+   Manages logs_dir() - the ground station's OWN rotating session logs on
+   this PC. Deliberately separate from loadLogs()/field_data/ above: those
+   are irreplaceable SD captures and this panel must never be able to touch
+   them. Everything here talks to /api/app-logs only. */
+let appLogsLastPreview = null; // {keep, entries, freed_bytes} from the last dry-run, so Delete can confirm against it
+
+async function loadAppLogs(){
+  const sum = $("appLogsSummary");
+  sum.textContent = "Loading…";
+  try{
+    const d = await (await fetch("/api/app-logs")).json();
+    sum.textContent = `${d.entries.length} file(s) · ${fmtBytes(d.total_bytes)} · ${d.dir}`;
+  }catch(err){
+    sum.textContent = `Could not reach the server: ${err}`;
+  }
+}
+
+function appLogsKeepValue(){
+  const raw = $("appLogsKeep").value;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+async function appLogsPrune(dryRun){
+  const resultEl = $("appLogsResult");
+  const keep = appLogsKeepValue();
+  if (keep === null){
+    resultEl.innerHTML = `<span class="warn">Enter a non-negative "keep newest" count first.</span>`;
+    return null;
+  }
+  try{
+    const resp = await fetch("/api/app-logs/prune", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({keep, older_than_days: null, dry_run: dryRun}),
+    });
+    const d = await resp.json();
+    if (!resp.ok){
+      resultEl.innerHTML = `<span class="warn">${d.error || `request failed (${resp.status})`}</span>`;
+      return null;
+    }
+    return d;
+  }catch(err){
+    resultEl.innerHTML = `<span class="warn">Could not reach the server: ${err}</span>`;
+    return null;
+  }
+}
+
+function renderAppLogsResult(d){
+  const resultEl = $("appLogsResult");
+  const list = d.deleted.length
+    ? `<ul>${d.deleted.map(e=>`<li>${e.name} — ${fmtBytes(e.bytes)} — ${e.modified}</li>`).join("")}</ul>`
+    : `<p style="color:var(--dim)">Nothing would be deleted.</p>`;
+  const errs = d.errors && d.errors.length
+    ? `<p class="warn">${d.errors.join("; ")}</p>` : "";
+  resultEl.innerHTML = `<p>${d.dry_run ? "Preview" : "Deleted"}: <b>${d.deleted.length}</b> file(s),
+    <b>${fmtBytes(d.freed_bytes)}</b> ${d.dry_run ? "would be freed" : "freed"} ·
+    ${d.kept_count} kept${d.dry_run ? "" : ""}</p>${list}${errs}`;
+}
+
+async function appLogsPreview(){
+  const d = await appLogsPrune(true);
+  if (!d) { $("appLogsDelete").disabled = true; appLogsLastPreview = null; return; }
+  renderAppLogsResult(d);
+  appLogsLastPreview = d;
+  $("appLogsDelete").disabled = d.deleted.length === 0;
+}
+
+async function appLogsDeleteConfirmed(){
+  if (!appLogsLastPreview || !appLogsLastPreview.deleted.length){
+    $("appLogsResult").innerHTML = `<span class="warn">Run Preview first.</span>`;
+    return;
+  }
+  const n = appLogsLastPreview.deleted.length;
+  const bytes = fmtBytes(appLogsLastPreview.freed_bytes);
+  const ok = confirm(
+    `Permanently delete ${n} ground-station log file(s), freeing ${bytes}?\n\n` +
+    `This does not touch field_data/ and cannot be undone.`
+  );
+  if (!ok) return;
+
+  const d = await appLogsPrune(false);
+  if (!d) return;
+  renderAppLogsResult(d);
+  appLogsLastPreview = null;
+  $("appLogsDelete").disabled = true;
+  loadAppLogs();
+}
+
+$("appLogsPreview").addEventListener("click", appLogsPreview);
+$("appLogsDelete").addEventListener("click", appLogsDeleteConfirmed);
+$("appLogsKeep").addEventListener("input", ()=>{ $("appLogsDelete").disabled = true; appLogsLastPreview = null; });
+
 /* ================= scrubber (whole-log review, not live) =================
    For the team reviewing a pulled SD card after a session: load one log
    file in full and drag through it, independent of the live WebSocket -
@@ -915,7 +1039,7 @@ function showTab(name){
   // the next frame lands half a second later.
   if(name==="map"){ drawMap(); requestAnimationFrame(drawMap); }
   if(name==="stats") renderStats();
-  if(name==="logs") loadLogs();
+  if(name==="logs"){ loadLogs(); loadAppLogs(); }
   if(name==="chart") Object.entries(lanes).forEach(([k,l])=>drawLane(l.canvas, store.series[k]||[]));
   if(name==="gauge") Object.entries(gauges).forEach(([k,g])=>{
     const s=store.stats[k]; if(s) drawGauge(g.canvas,s.last,g.range[0],g.range[1],false); });

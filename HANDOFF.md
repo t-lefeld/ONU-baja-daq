@@ -1,6 +1,6 @@
 # Handoff — read this first
 
-Written 2026-08-12, updated 2026-08-14 for whoever (or whatever) picks this
+Written 2026-08-12, updated 2026-08-16 for whoever (or whatever) picks this
 up next. Assume no memory of prior conversations. This file is the
 orientation; the other docs are the detail.
 

@@ -55,6 +55,31 @@ extern "C" {
 #define HUB_DEBUG_UART 1
 #endif
 
+/**
+ * Set to 1 to mirror every frame on the ST-Link VCP (USART2) as the SAME
+ * BINARY BYTES sent to the radio, instead of as human-readable text.
+ *
+ * Why: LoRa is deliberately a low-bandwidth summary link (see the project
+ * notes on why SD logging and telemetry are separate paths). The ST-Link USB
+ * cable is already plugged in for flashing, so it is a free wired path that
+ * can carry the full frame rate with no radio in the way. Because the bytes
+ * are identical to the radio's, the ground station needs no new parser -
+ * pc_app's VcpSource is just SerialSource pointed at a different port.
+ *
+ * MUTUALLY EXCLUSIVE with HUB_DEBUG_UART: one UART cannot carry human text
+ * and binary frames at once without the text corrupting every frame a parser
+ * tries to sync on. Enabling this therefore forces HUB_DEBUG_UART off rather
+ * than letting the two silently interleave.
+ */
+#ifndef HUB_BINARY_UART
+#define HUB_BINARY_UART 0
+#endif
+
+#if HUB_BINARY_UART && HUB_DEBUG_UART
+#undef HUB_DEBUG_UART
+#define HUB_DEBUG_UART 0
+#endif
+
 /** Set to 0 to build without SD support (no FatFs dependency). */
 #ifndef HUB_ENABLE_SD
 #define HUB_ENABLE_SD 1
@@ -68,6 +93,7 @@ typedef struct {
     uint32_t lora_busy;      /* snapshots skipped, radio still transmitting */
     uint32_t sd_errors;      /* failed writes                               */
     uint32_t busoff_events;
+    uint32_t vcp_dropped;    /* binary mirror frames skipped, VCP still busy */
 } hub_stats_t;
 
 /**

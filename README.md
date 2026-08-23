@@ -94,6 +94,31 @@ python run.py --replay logs/LOG0001.TLM --speed 4       # replay an SD log
 python run.py --web --host 0.0.0.0                      # view from a phone on the network
 ```
 
+### Cleaning up old ground-station logs
+
+Every run writes a new rotating session log into `pc_app/logs/` (or next to
+`Telemetry.exe` if you're running the frozen build), and nothing ever prunes
+them on its own — left alone they just accumulate. Five flags handle it:
+
+```bash
+python run.py --list-logs                             # inventory: name, size, age
+python run.py --clean-logs                             # prune, keeping the 10 newest, then exit
+python run.py --clean-logs --keep 20                   # keep the 20 newest instead
+python run.py --clean-logs --older-than 30              # delete anything older than 30 days
+python run.py --clean-logs --older-than 30 --dry-run    # preview only, deletes nothing
+```
+
+`--keep` and `--older-than` can combine; with neither given, `--clean-logs`
+defaults to `--keep 10`. There's also a **Ground station logs** panel in the
+`--web` dashboard with Preview/Delete buttons, for anyone who'd rather not
+use the command line.
+
+This deliberately only ever touches `logs_dir()` — the ground station's own
+disposable session logs. It has no path into `field_data/` at all, by design:
+those are real SD-card captures pulled off the car, and unlike a log file
+`run.py` can regenerate on the next launch, a lost field capture is gone for
+good.
+
 ### It's a native window, not a browser tab
 
 By default `run.py` opens a real PySide6 (Qt) window — `telemetry/qt_app.py`.

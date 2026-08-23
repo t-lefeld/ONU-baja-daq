@@ -23,3 +23,14 @@ pyserial>=3.5
 
 # Only needed for tools/test_dbc.py and tools/test_dbc_v2.py:
 #   cantools>=39
+
+# python-can is NOT required. It only powers telemetry/can_adapter.py
+# (CanAdapterSource), which taps a USB-CAN adapter (CANable/slcan, PCAN,
+# Kvaser, socketcan) directly instead of going through the E22 dongle and
+# the hub's own reassembly - useful for bench-testing nodes with no hub
+# present. can_adapter.py imports python-can lazily inside the constructor
+# specifically so that its absence never breaks `import telemetry.can_adapter`
+# or the frozen Telemetry.exe for the (normal) case of a user with only a
+# serial dongle. Install this only if you actually have a USB-CAN adapter
+# and want --source can:
+#   python-can>=4.3

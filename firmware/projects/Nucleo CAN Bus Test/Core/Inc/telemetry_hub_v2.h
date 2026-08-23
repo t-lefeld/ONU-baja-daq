@@ -91,6 +91,31 @@ extern "C" {
 #define HUB2_DEBUG_UART 1
 #endif
 
+/**
+ * Set to 1 to mirror every frame on the ST-Link VCP (USART2) as the SAME
+ * BINARY BYTES sent to the radio, instead of as human-readable text. See the
+ * long note on HUB_BINARY_UART in telemetry_hub.h - identical rationale,
+ * identical mutual-exclusion rule, and it matters more here: a v2 frame is
+ * larger than a v1 one, so the blocking-transmit cost this avoids is bigger.
+ *
+ * MUTUALLY EXCLUSIVE with HUB2_DEBUG_UART, which it forces off.
+ *
+ * Defaulted ON (2026-08-22) because the wired full-rate link is now the
+ * primary way the ground station is driven on the bench - pc_app's --vcp
+ * expects it. The cost is that USART2 no longer carries the human-readable
+ * frame dump: if you are debugging by watching a serial terminal rather than
+ * by running the dashboard, set this to 0 and HUB2_DEBUG_UART goes back to 1
+ * on its own.
+ */
+#ifndef HUB2_BINARY_UART
+#define HUB2_BINARY_UART 1
+#endif
+
+#if HUB2_BINARY_UART && HUB2_DEBUG_UART
+#undef HUB2_DEBUG_UART
+#define HUB2_DEBUG_UART 0
+#endif
+
 /** Set to 0 to build without SD support (no FatFs dependency). */
 #ifndef HUB2_ENABLE_SD
 #define HUB2_ENABLE_SD 1
@@ -210,6 +235,7 @@ typedef struct {
     uint32_t lora_busy;       /* snapshots skipped, radio still transmitting */
     uint32_t sd_errors;       /* failed SD writes                            */
     uint32_t busoff_events;
+    uint32_t vcp_dropped;     /* binary mirror frames skipped, VCP still busy */
 } hub2_stats_t;
 
 /**

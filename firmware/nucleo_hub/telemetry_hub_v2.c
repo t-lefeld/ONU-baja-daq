@@ -522,6 +522,24 @@ void hub2_task(void)
     }
 #endif
 
+#if HUB2_BINARY_UART
+    /*
+     * Same bytes as the radio and the SD card (s_txbuf/n), non-blocking, and
+     * dropped rather than deferred if the VCP is still busy. See the long
+     * comment on the equivalent block in telemetry_hub.c for the full
+     * reasoning - the short version is that the CAN ring buffer's margin is
+     * budgeted for SD stalls, not UART stalls, so the mirror must never be
+     * allowed to cost a CAN frame.
+     */
+    if (s_debug != NULL)
+    {
+        if (HAL_UART_Transmit_DMA(s_debug, s_txbuf, (uint16_t)n) != HAL_OK)
+        {
+            s_stats.vcp_dropped++;
+        }
+    }
+#endif
+
 #if HUB2_DEBUG_UART
     debug_print_v2(&s_frame);
 #endif

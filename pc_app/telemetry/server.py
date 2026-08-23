@@ -19,7 +19,8 @@ from aiohttp import WSMsgType, web
 
 from pathlib import Path
 
-from .paths import static_dir
+from .cleanup import list_logs, prune_logs
+from .paths import logs_dir, static_dir
 from .protocols import active
 from .pump import FramePump
 from .recorder import CsvRecorder
@@ -219,6 +220,97 @@ class TelemetryServer:
             "bytes_discarded": parser.bytes_discarded,
         })
 
+    async def handle_app_logs(self, request: web.Request) -> web.Response:
+        """
+        Inventory of the ground station's OWN rotating session logs, in
+        paths.logs_dir() - a completely different directory from
+        FIELD_DATA_DIR above. Those are irreplaceable SD captures and are
+        never exposed for deletion anywhere in this server; this endpoint
+        only ever looks at logs_dir(), and the /prune route below only ever
+        deletes from there too.
+        """
+        entries = []
+        total_bytes = 0
+        for lf in list_logs():
+            entries.append({
+                "name": lf.path.name,
+                "bytes": lf.bytes,
+                "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(lf.modified)),
+                "age_days": round(lf.age_days, 2),
+            })
+            total_bytes += lf.bytes
+
+        return web.json_response({
+            "dir": str(logs_dir()),
+            "entries": entries,
+            "total_bytes": total_bytes,
+        })
+
+    async def handle_app_logs_prune(self, request: web.Request) -> web.Response:
+        """
+        Deletes (or previews deleting, with dry_run) old files from the
+        ground station's own logs_dir() - never field_data/. See
+        handle_app_logs above for the read-only counterpart and cleanup.py
+        for the actual prune_logs() implementation.
+        """
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, ValueError):
+            return web.json_response({"error": "request body must be JSON"}, status=400)
+
+        if not isinstance(body, dict):
+            return web.json_response({"error": "request body must be a JSON object"}, status=400)
+
+        keep = body.get("keep")
+        older_than_days = body.get("older_than_days")
+        dry_run = bool(body.get("dry_run", False))
+
+        if keep is not None:
+            if isinstance(keep, bool) or not isinstance(keep, int) or keep < 0:
+                return web.json_response(
+                    {"error": "keep must be a non-negative integer or null"}, status=400
+                )
+
+        if older_than_days is not None:
+            if isinstance(older_than_days, bool) or not isinstance(older_than_days, (int, float)) or older_than_days < 0:
+                return web.json_response(
+                    {"error": "older_than_days must be a non-negative number or null"}, status=400
+                )
+
+        if keep is None and older_than_days is None:
+            return web.json_response(
+                {"error": "specify at least one of keep or older_than_days - both null deletes nothing"},
+                status=400,
+            )
+
+        try:
+            result = prune_logs(
+                keep=keep,
+                older_than_days=older_than_days,
+                dry_run=dry_run,
+            )
+        except Exception as exc:  # noqa: BLE001 - never take the server down over a prune
+            log.exception("app-logs prune failed")
+            return web.json_response({"error": f"prune failed: {exc}"}, status=500)
+
+        deleted = [
+            {
+                "name": lf.path.name,
+                "bytes": lf.bytes,
+                "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(lf.modified)),
+                "age_days": round(lf.age_days, 2),
+            }
+            for lf in result.deleted
+        ]
+
+        return web.json_response({
+            "deleted": deleted,
+            "kept_count": len(result.kept),
+            "freed_bytes": result.freed_bytes,
+            "dry_run": result.dry_run,
+            "errors": result.errors,
+        })
+
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
@@ -268,6 +360,8 @@ class TelemetryServer:
         app.router.add_get("/api/status", self.handle_status)
         app.router.add_get("/api/logs", self.handle_logs)
         app.router.add_get("/api/log/{rel:.*}", self.handle_log_scrub)
+        app.router.add_get("/api/app-logs", self.handle_app_logs)
+        app.router.add_post("/api/app-logs/prune", self.handle_app_logs_prune)
 
         static = static_dir()
         if static.is_dir():

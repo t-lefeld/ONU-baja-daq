@@ -50,7 +50,24 @@ if errorlevel 1 (
 
 echo.
 echo === Building ===
-python -m PyInstaller --noconfirm --clean telemetry.spec
+REM Best-effort wipe of the previous build tree, then build WITHOUT --clean.
+REM
+REM Why not --clean: this folder lives in OneDrive, and OneDrive (plus HP Sure
+REM Click / Wolf Security on this machine) intermittently holds an open handle
+REM on build\telemetry\localpycs. --clean makes PyInstaller shutil.rmtree the
+REM build directory and treat a failure to remove it as fatal, so a transient
+REM lock on one empty scratch folder kills the whole build with
+REM "PermissionError: [WinError 5] Access is denied". Without --clean,
+REM PyInstaller is perfectly happy to reuse an existing build directory.
+REM
+REM The rmdir below still clears stale state when Windows lets it, but 2>nul
+REM and the absent errorlevel check mean a locked folder is a shrug instead of
+REM a failed build. If you ever need a guaranteed-pristine build, close
+REM Explorer windows on this folder, pause OneDrive sync, delete build\ by
+REM hand, and re-run.
+if exist build rmdir /s /q build 2>nul
+
+python -m PyInstaller --noconfirm telemetry.spec
 if errorlevel 1 (
     echo.
     echo Build failed.

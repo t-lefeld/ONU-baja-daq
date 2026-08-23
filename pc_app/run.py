@@ -9,6 +9,11 @@ Ground station entry point.
     python run.py --replay logs/LOG0001.TLM # replay an SD card log
     python run.py --proto v2 --replay x.tlm # decode the 24-channel v2 format
     python run.py --host 0.0.0.0            # let phones on the same wifi watch
+    python run.py --list-logs               # inventory of logs_dir(): name, size, age
+    python run.py --clean-logs              # keep the 10 newest logs, delete the rest
+    python run.py --clean-logs --keep 5     # keep the 5 newest instead
+    python run.py --clean-logs --older-than 30   # delete anything older than 30 days
+    python run.py --clean-logs --older-than 30 --dry-run  # preview, deletes nothing
 
 Built as an .exe this is the double-click target, so running with no arguments
 has to do something sensible on its own: detect the dongle, fall back to the
@@ -37,7 +42,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
-from telemetry import paths, protocols, settings
+from telemetry import cleanup, paths, protocols, settings
 from telemetry.protocols import active
 from telemetry.recorder import CsvRecorder
 from telemetry.sources import (
@@ -45,7 +50,10 @@ from telemetry.sources import (
     ReplaySource,
     SerialSource,
     SimulatorSource,
+    SimulatorSourceV2,
+    VcpSource,
     guess_port,
+    guess_vcp_port,
     list_ports,
 )
 
@@ -138,9 +146,35 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--replay", type=Path, help="replay a .tlm log file")
     src.add_argument("--list-ports", action="store_true", help="list serial ports and exit")
     src.add_argument(
+        "--vcp",
+        action="store_true",
+        help="read the hub over its ST-Link USB port instead of the radio "
+        "(wired, full rate; auto-detects the port)",
+    )
+    src.add_argument(
+        "--can",
+        metavar="CHANNEL",
+        help="tap the CAN bus directly through a USB-CAN adapter, e.g. "
+        "--can COM7 or --can can0. Requires python-can.",
+    )
+    src.add_argument(
         "--no-reconnect",
         action="store_true",
         help="exit instead of retrying when the serial link drops",
+    )
+
+    canopt = p.add_argument_group("USB-CAN adapter options (--can)")
+    canopt.add_argument(
+        "--can-interface",
+        default="slcan",
+        help="python-can backend: slcan (CANable), pcan, kvaser, socketcan, "
+        "ixxat, vector. Default: slcan",
+    )
+    canopt.add_argument(
+        "--can-bitrate",
+        type=int,
+        help="bus bit rate in bit/s. Defaults to the project's bus rate; only "
+        "set this if you are tapping a bus running something else.",
     )
 
     ser = p.add_argument_group("serial options")
@@ -202,6 +236,40 @@ def build_parser() -> argparse.ArgumentParser:
         "simulation/run_sim.py instead.",
     )
 
+    cl = p.add_argument_group(
+        "log cleanup",
+        "manage the timestamped CSVs and telemetry.log that pile up in "
+        "logs_dir() over time. Never touches field_data/.",
+    )
+    cl.add_argument(
+        "--clean-logs",
+        action="store_true",
+        help="prune old logs, then exit without starting the app. With "
+        "neither --keep nor --older-than, defaults to --keep 10.",
+    )
+    cl.add_argument(
+        "--keep",
+        type=int,
+        metavar="N",
+        help="with --clean-logs: keep the N newest logs, delete the rest",
+    )
+    cl.add_argument(
+        "--older-than",
+        type=float,
+        metavar="DAYS",
+        help="with --clean-logs: delete logs older than this many days",
+    )
+    cl.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --clean-logs: print what would be deleted, delete nothing",
+    )
+    cl.add_argument(
+        "--list-logs",
+        action="store_true",
+        help="print the logs_dir() inventory (name, size, age) and exit",
+    )
+
     p.add_argument("-v", "--verbose", action="store_true")
 
     return p
@@ -209,6 +277,82 @@ def build_parser() -> argparse.ArgumentParser:
 
 def timestamped(prefix: str, suffix: str) -> Path:
     return paths.logs_dir() / f"{prefix}_{datetime.now():%Y%m%d_%H%M%S}{suffix}"
+
+
+# --------------------------------------------------------------------
+# Log cleanup
+# --------------------------------------------------------------------
+
+
+def human_bytes(n: int) -> str:
+    """1536 -> '1.5 KB'. Only the units this app's logs actually reach."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"  # unreachable, keeps type-checkers happy
+
+
+def cmd_list_logs() -> int:
+    files = cleanup.list_logs()
+    if not files:
+        print(f"No logs found in {paths.logs_dir()}")
+        return 0
+
+    print(f"Logs in {paths.logs_dir()} (newest first):")
+    print(f"{'NAME':<40} {'SIZE':>10}  AGE")
+    total = 0
+    for lf in files:
+        total += lf.bytes
+        print(f"{lf.path.name:<40} {human_bytes(lf.bytes):>10}  {lf.age_days:.1f}d")
+    print(f"\n{len(files)} file(s), {human_bytes(total)} total")
+    return 0
+
+
+def cmd_clean_logs(args, log_file: Path | None) -> int:
+    """
+    Handles --clean-logs. Runs and exits without touching the source /
+    dashboard machinery at all - this is a maintenance command, not a
+    startup flag.
+    """
+    keep = args.keep
+    older_than = args.older_than
+
+    if keep is None and older_than is None:
+        # A bare --clean-logs is far more likely to mean "tidy up" than
+        # "I have thought carefully and want zero filters applied" - and
+        # prune_logs() itself refuses to delete anything when both are None,
+        # so silently doing nothing here would be a confusing no-op. Default
+        # to something useful instead, and say so.
+        keep = 10
+        print("--clean-logs given with no --keep or --older-than; "
+              "defaulting to --keep 10")
+
+    # Never delete the log file this very process is writing to - setup_logging()
+    # already has the handle open, and unlinking it out from under a live
+    # FileHandler on Windows would either fail (locked) or silently break
+    # further logging. Protecting it explicitly means that either way, it is
+    # never even attempted.
+    protect = (log_file,) if log_file is not None else ()
+
+    result = cleanup.prune_logs(
+        keep=keep,
+        older_than_days=older_than,
+        dry_run=args.dry_run,
+        protect=protect,
+    )
+
+    verb = "Would delete" if result.dry_run else "Deleted"
+    print(f"{verb} {len(result.deleted)} file(s), "
+          f"freeing {human_bytes(result.freed_bytes)}")
+    print(f"Kept {len(result.kept)} file(s)")
+    if result.errors:
+        print(f"{len(result.errors)} error(s):")
+        for err in result.errors:
+            print(f"  {err}")
+
+    return 1 if result.errors else 0
 
 
 def make_source(args, cfg) -> tuple[FrameSource | None, Path | None]:
@@ -225,19 +369,64 @@ def make_source(args, cfg) -> tuple[FrameSource | None, Path | None]:
             return None, None
 
     if args.sim:
+        # Which simulator depends on the active protocol, not on a separate
+        # flag: --sim means "no hardware", and the shape of synthetic data has
+        # to match whatever wire format the rest of the app was told to speak.
+        # Making the user pick both would let them pick an impossible pair.
+        sim_cls = SimulatorSourceV2 if active().NODE_COUNT == 4 else SimulatorSource
         try:
-            return SimulatorSource(drop_rate=args.drop_rate,
-                                   offline_node=args.offline_node), None
+            return sim_cls(drop_rate=args.drop_rate,
+                           offline_node=args.offline_node), None
         except RuntimeError as exc:
-            # --proto v2 --sim: the built-in simulator is v1-shaped. Its own
-            # message names the alternative, so print that rather than a
-            # traceback, which reads like a crash for what is a usage error.
+            # Usage or environment problem (e.g. simulation/ missing from a
+            # frozen build), not a crash - print the message the source wrote
+            # rather than a traceback, which reads like a bug for something
+            # the user can fix.
             for line in str(exc).splitlines():
                 log.error("%s", line)
             return None, None
 
+    if args.can:
+        # Direct USB-CAN adapter tap. Imported here rather than at module
+        # scope so that python-can - which is optional and usually absent -
+        # is only required by people who actually pass --can.
+        from telemetry.can_adapter import CanAdapterSource
+        try:
+            source = CanAdapterSource(
+                channel=args.can,
+                interface=args.can_interface,
+                bitrate=args.can_bitrate,
+                reconnect=not args.no_reconnect,
+            )
+        except RuntimeError as exc:
+            for line in str(exc).splitlines():
+                log.error("%s", line)
+            return None, None
+        return source, raw_path
+
     baud = args.baud or cfg["baud"]
     port = args.port or cfg.get("port")
+
+    if args.vcp:
+        # Wired link to the hub's ST-Link USB serial port. Same byte stream as
+        # the radio, so this is SerialSource with a different port and baud -
+        # see VcpSource. Full frame rate, no radio in the path.
+        vcp_port = args.port or guess_vcp_port()
+        if vcp_port is None:
+            log.error("No ST-Link Virtual COM Port found.")
+            log.error("Plug the Nucleo hub in over USB, or name the port with --port.")
+            return None, None
+        try:
+            source = VcpSource(
+                port=vcp_port,
+                baud=args.baud or 115200,
+                raw_log=raw_path,
+                reconnect=not args.no_reconnect,
+            )
+        except RuntimeError as exc:
+            log.error("%s", exc)
+            return None, None
+        return source, raw_path
 
     # An explicitly requested port is pinned; otherwise the source re-detects
     # on every reconnect, so plugging the dongle into a different USB socket
@@ -245,7 +434,11 @@ def make_source(args, cfg) -> tuple[FrameSource | None, Path | None]:
     if port is None and guess_port() is None:
         log.warning("No serial port detected - starting the simulator instead.")
         log.warning("Plug in the E22 dongle and restart, or use --port to name one.")
-        return SimulatorSource(), None
+        # Same protocol-driven choice as the --sim branch above: falling back
+        # to a v1 simulator while the app is decoding v2 would show a dashboard
+        # with the wrong channels on it.
+        fallback = SimulatorSourceV2 if active().NODE_COUNT == 4 else SimulatorSource
+        return fallback(), None
 
     try:
         source = SerialSource(
@@ -371,6 +564,12 @@ def run_web(args, source: FrameSource, recorder: CsvRecorder | None, cfg: dict) 
 def main() -> int:
     args = build_parser().parse_args()
     log_file = setup_logging(args.verbose)
+
+    if args.list_logs:
+        return cmd_list_logs()
+
+    if args.clean_logs:
+        return cmd_clean_logs(args, log_file)
 
     if args.list_ports:
         ports = list_ports()

@@ -44,6 +44,11 @@ Release/
 # Editors / OS
 .vscode/
 .idea/
+# VS Code multi-root workspace files. These embed absolute paths from
+# whoever created them (the one in firmware/projects/ points at a
+# PlatformIO esp32 folder under one specific user's Documents), so they
+# are personal setup, not project configuration.
+*.code-workspace
 *.swp
 .DS_Store
 Thumbs.db

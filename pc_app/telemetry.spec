@@ -21,7 +21,15 @@ block_cipher = None
 
 a = Analysis(
     ['run.py'],
-    pathex=[],
+
+    # ../simulation is where vehicle_data.py lives. It is not a package and is
+    # not importable by default, but the v2 simulator (SimulatorSourceV2 in
+    # telemetry/sources.py) borrows its channel table and waveforms rather than
+    # keeping a second copy that nothing tests. Putting the directory on pathex
+    # lets PyInstaller find the module; hiddenimports below forces it in, since
+    # sources.py imports it inside a function and static analysis misses that.
+    pathex=[os.path.join(os.path.dirname(os.path.abspath(SPEC)), '..', 'simulation')],
+
     binaries=[],
 
     # The dashboard is served from disk at runtime, so it has to be bundled.
@@ -36,6 +44,10 @@ a = Analysis(
         # PySide6's __init__ imports this dynamically; PyInstaller's static
         # analysis can miss it depending on hook version.
         'shiboken6',
+        # The v2 simulator's data source. Imported lazily inside
+        # sources._load_vehicle_data(), so it must be named explicitly here or
+        # --sim --proto v2 works from source and fails only in the frozen exe.
+        'vehicle_data',
     ],
 
     hookspath=[],
