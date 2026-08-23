@@ -1,6 +1,11 @@
 # Project status and what's left
 
-Last updated: 2026-08-14
+Last updated: 2026-08-22
+
+> **If this file disagrees with `HANDOFF.md`, believe `HANDOFF.md`.** That one
+> is kept current as the orientation doc; this one is the longer task list and
+> lags behind it. Status claims here were last reconciled against it on
+> 2026-08-22.
 
 ## The one-paragraph version
 
@@ -11,21 +16,21 @@ verified end to end on actual hardware. It carries 9 placeholder channels
 (temp/humidity/pressure, batt/current/power, accel x/y/z). Kept alive on the
 1st Bluepill as a bench spare even after the v2 cutover below.
 
-**v2 is wired into real projects as of 2026-08-14, not yet bench-tested.**
-The protocol, Python decoder, DBC, sensor drivers, E-CVT controller, and both
-the Bluepill node firmware (`can_node_v2.c`) and hub firmware
-(`telemetry_hub_v2.c`) all exist and pass tests (15 suites, all green). As of
-today, `can_node_v2.c`/`telemetry_hub_v2.c` are copied into the 2nd Bluepill
-(Front), 3rd Bluepill (Rear), and Nucleo hub CubeIDE projects, with each
-project's `main.c` now calling the v2 init/task functions instead of v1's.
-All 24 channels are still **simulated in firmware**, not read from real
-sensors — that's v3. **No v2 byte has been confirmed over a real wire yet** —
-the code is wired in and internally consistent per the test suite, but it has
-not been flashed or run on the bench. That's the next milestone.
+**v2 is fully bench-verified on real hardware as of 2026-08-16.** The
+protocol, Python decoder, DBC, sensor drivers, E-CVT controller, and both the
+Bluepill node firmware (`can_node_v2.c`) and hub firmware
+(`telemetry_hub_v2.c`) all exist and pass tests (15 suites, all green).
+`can_node_v2.c`/`telemetry_hub_v2.c` are flashed to the 2nd Bluepill (Front),
+3rd Bluepill (Rear), and Nucleo hub, and end-to-end data flow, SD logging, and
+fault recovery (node drop/reconnect, full bus drop/reconnect) are all confirmed
+working on the bench. All 24 channels are still **simulated in firmware**, not
+read from real sensors — that's v3.
 
-**v3 hasn't started.** Real sensors go into `can_node_v2.c`'s
-`sim_read_channels()` and `telemetry_hub_v2.c`'s `hub2_originate_node0/3()`
-one at a time, once v2 is proven solid on the bench.
+**v3 is in progress as of 2026-08-16.** CubeMX pin-out is done for all three
+boards (Front, Rear, Hub). What is *not* done: no sensor driver has been wired
+into `can_node_v2.c`'s `sim_read_channels()` or `telemetry_hub_v2.c`'s
+`hub2_originate_node0/3()` yet, and nothing has been physically verified
+against a real sensor. `V3_BRINGUP_CHECKLIST.md` has exact per-sensor status.
 
 ---
 
@@ -33,14 +38,12 @@ one at a time, once v2 is proven solid on the bench.
 
 These are the only items that can't be done at a keyboard.
 
-- [ ] **Stage 3: SD card.** `HUB_ENABLE_SD` is already `1` in firmware, but
-      it's never been confirmed working. Format a card FAT32, insert, run the
-      hub, then verify `LOG0001.TLM` grows by 42 bytes every 500 ms. If it
-      doesn't, check the `sd_errors` counter.
-- [ ] **Stage 4: Fault recovery.** Unplug a node's CAN connector mid-run,
-      confirm the dashboard flips that node to stale within a couple frames,
-      replug, confirm it recovers. Then unplug the bus itself and confirm
-      `busoff_events` increments and the hub recovers rather than wedging.
+- [x] **Stage 3: SD card.** Confirmed working on the bench 2026-08-16 —
+      `LOG0001.TLM` grows as expected and `sd_errors` stays at zero.
+- [x] **Stage 4: Fault recovery.** Confirmed working on the bench 2026-08-16 —
+      a dropped node goes stale within a couple of frames and recovers on
+      replug; a full bus drop increments `busoff_events` and the hub recovers
+      rather than wedging.
 - [ ] **Measure real LoRa throughput.** Everything about v2's frame size rests
       on a ~200 B/s estimate that came from a code comment and has never been
       measured. See Track C — this number decides whether v2 fits at 2 Hz.

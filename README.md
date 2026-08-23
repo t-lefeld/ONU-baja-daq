@@ -119,31 +119,34 @@ those are real SD-card captures pulled off the car, and unlike a log file
 `run.py` can regenerate on the next launch, a lost field capture is gone for
 good.
 
-### It's a native window, not a browser tab
+### The dashboard, and why it isn't the Qt window any more
 
-By default `run.py` opens a real PySide6 (Qt) window — `telemetry/qt_app.py`.
-No tabs, no address bar, its own taskbar and Alt-Tab entry, and critically:
-no Chrome, no Edge, no embedded browser engine anywhere in the process. A
-background thread runs the same frame-consuming logic (`telemetry/pump.py`)
-that the browser dashboard uses, and hands frames to the window over Qt
-signals, so the window stays responsive no matter what the serial link or
-CAN bus is doing.
-
-If you want the old browser-based dashboard instead — say, to check the link
-from your phone on the same network — pass `--web`:
+**The browser dashboard is the default.** `run.py` serves
+`pc_app/static/index.html` from a small aiohttp server and opens it in Edge or
+Chrome's `--app` mode — its own window, its own taskbar entry, its own browser
+profile so it doesn't hijack a tab in whatever browser you already have open.
+Four dashboard designs live in `simulation/dashboards/` and are served at
+`/dashboards/`; the original single view is at `/`. See
+`telemetry/launcher.py` for the detection and fallback chain, and
+`telemetry/server.py` for the WebSocket server.
 
 ```bash
-python run.py --web                    # browser dashboard on localhost
-python run.py --web --host 0.0.0.0     # reachable from other devices
-python run.py --web --tab              # a normal tab instead of Edge/Chrome app-mode
+python run.py                          # dashboard, app-mode window
+python run.py --host 0.0.0.0           # reachable from a phone on the same wifi
+python run.py --tab                    # a normal browser tab instead of app-mode
 ```
 
-`--web` serves `pc_app/static/index.html` over a small aiohttp server and, by
-default, opens it in Edge or Chrome's `--app` mode (own window, own taskbar
-entry, dedicated browser profile so it doesn't hijack a tab in whatever
-browser you already have open) — the same mechanism this app used before the
-native window existed. See `telemetry/launcher.py` for the detection and
-fallback chain, and `telemetry/server.py` for the WebSocket server.
+**The PySide6 (Qt) native window is retired.** It used to be the default, and
+`telemetry/qt_app.py` still works behind `--native`, but nothing tests it and
+it only ever spoke v1's 3-node channel set — it does not understand
+`--proto v2`. It was retired for one reason worth recording: it pulled a heavy
+GUI dependency into the build for a single window, while the browser dashboard
+already had to exist anyway for phone access. Keeping both meant maintaining
+two UIs against a channel table that was actively changing, and only one of
+them had tests.
+
+`telemetry/pump.py` — the frame-consuming logic both UIs share — is unchanged
+and still covered by `tools/test_qt.py`.
 
 ### Build Telemetry.exe
 
@@ -156,9 +159,21 @@ Produces `dist\Telemetry.exe` — one file, no install needed on the target
 machine — and drops a **Telemetry** shortcut on your Desktop pointing at it.
 The script installs PyInstaller and `PySide6-Essentials` (deliberately not the
 `PySide6` umbrella package — see below), runs the wire-format tests, builds,
-smoke-tests the result both ways (native window comes up and stays running;
-`--web` serves the dashboard and answers `/api/status`), then creates the
-shortcut.
+smoke-tests the result both ways (the app comes up and stays running; `--web`
+serves the dashboard and answers `/api/status`), then creates the shortcut.
+
+Two things about this script worth knowing:
+
+- Its closing message still describes the retired native window as the default
+  launch mode. The build itself is fine; that text is stale.
+- It deliberately does **not** pass PyInstaller's `--clean`. When this tree
+  lives in a synced folder (OneDrive) or on a machine running HP Sure Click,
+  something intermittently holds an open handle on
+  `build/telemetry/localpycs`; `--clean` treats failing to delete that scratch
+  directory as fatal and kills the whole build with `WinError 5`. A
+  best-effort `rmdir` replaces it, so a transient lock costs you a slightly
+  less pristine build instead of a failed one. For a guaranteed-clean build,
+  pause sync, delete `build\` by hand, and re-run.
 
 **Why `PySide6-Essentials` and not `PySide6`:** the umbrella package pulls in
 `PySide6-Addons`, which bundles `QtWebEngine` — a full embedded Chromium. The
