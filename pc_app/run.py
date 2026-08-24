@@ -7,7 +7,8 @@ Ground station entry point.
     python run.py --list-ports              # see what is plugged in
     python run.py --port COM7               # a specific port
     python run.py --replay logs/LOG0001.TLM # replay an SD card log
-    python run.py --proto v2 --replay x.tlm # decode the 24-channel v2 format
+    python run.py --vcp                     # wired USB straight to the hub
+    python run.py --proto v1                # the old 9-channel format
     python run.py --host 0.0.0.0            # let phones on the same wifi watch
     python run.py --list-logs               # inventory of logs_dir(): name, size, age
     python run.py --clean-logs              # keep the 10 newest logs, delete the rest
@@ -18,6 +19,14 @@ Ground station entry point.
 Built as an .exe this is the double-click target, so running with no arguments
 has to do something sensible on its own: detect the dongle, fall back to the
 simulator if there isn't one, and open a window.
+
+That is also why --proto defaults to v2 (changed 2026-08-23). v1 was the
+default for as long as it was the only thing any board was flashed with; that
+stopped being true once Front/Rear/Hub were cut over, and the stale default
+meant a double-clicked .exe silently decoded a v2 stream with a v1 decoder.
+That failure is quiet rather than loud - you get a dashboard full of
+plausible-looking wrong numbers, not an error - so the default now matches
+what the hardware actually speaks. Pass --proto v1 for the bench spare.
 
 The UI is the browser dashboard set, opened as a standalone Edge/Chrome
 "app mode" window (its own taskbar entry, not a tab) unless --tab says
@@ -228,12 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument(
         "--proto",
         choices=protocols.CHOICES,
-        default=protocols.V1,
-        help="wire format to decode (default v1 - what the hardware speaks "
-        "today). v2 is the 24-channel multi-frame format; no firmware emits "
-        "it yet, so use it with --replay or once a v2 node is flashed. The "
-        "built-in --sim is v1-only; for a v2 synthetic feed run "
-        "simulation/run_sim.py instead.",
+        default=protocols.V2,
+        help="wire format to decode (default v2 - the 24-channel, 4-node, "
+        "80-byte format the Front/Rear/Hub boards are flashed with today). "
+        "Pass --proto v1 for the older 9-channel 42-byte format, which is "
+        "still what the 1st Bluepill bench spare emits. --sim honours this "
+        "flag: it picks the v2 simulator here and the v1 one under --proto v1.",
     )
 
     cl = p.add_argument_group(
@@ -583,9 +592,13 @@ def main() -> int:
         return 0
 
     protocols.use(args.proto)
-    if args.proto != protocols.V1:
-        log.info("Wire format: %s (%d-byte frames, %d nodes)",
-                 args.proto, active().FRAME_SIZE, active().NODE_COUNT)
+    # Logged unconditionally, not just for the non-default case. Picking the
+    # wrong wire format is the single most confusing failure this app has -
+    # a v1 decoder pointed at a v2 stream doesn't error, it just shows stale
+    # or garbage channels - and the frame size in this line ("42 bytes" vs
+    # "80 bytes") is the fastest way to spot it in a log after the fact.
+    log.info("Wire format: %s (%d-byte frames, %d nodes)",
+             args.proto, active().FRAME_SIZE, active().NODE_COUNT)
 
     cfg = settings.load()
     log.debug("Paths: %s", paths.describe())
