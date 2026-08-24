@@ -20,7 +20,7 @@ from aiohttp import WSMsgType, web
 from pathlib import Path
 
 from .cleanup import list_logs, prune_logs
-from .paths import logs_dir, static_dir
+from .paths import is_frozen, logs_dir, resource_dir, static_dir
 from .protocols import active
 from .pump import FramePump
 from .recorder import CsvRecorder
@@ -35,10 +35,17 @@ log = logging.getLogger("telemetry")
 # identical HTML/CSS/JS renders real hardware data instead of the simulator's
 # synthetic data - no dashboard code needs to change either way.
 #
-# Dev-mode only: this path assumes running from source (telemetry/server.py
-# -> telemetry/ -> pc_app/ -> repo root -> simulation/dashboards). A
-# PyInstaller build would need this added to build.bat's --add-data to work.
-DASHBOARDS_DIR = Path(__file__).resolve().parent.parent.parent / "simulation" / "dashboards"
+# Resolved differently depending on how we're running, because the layout
+# differs: from source the designs sit at repo-root/simulation/dashboards,
+# while telemetry.spec flattens them to <bundle>/dashboards in the .exe.
+# Deriving this from paths.resource_dir() rather than hardcoding a ../../..
+# walk means the frozen case is handled by the same helper static_dir() uses,
+# instead of silently falling back to "not found" the way it did until
+# 2026-08-23 (the designs 404'd in every build ever shipped).
+if is_frozen():
+    DASHBOARDS_DIR = resource_dir() / "dashboards"
+else:
+    DASHBOARDS_DIR = Path(__file__).resolve().parent.parent.parent / "simulation" / "dashboards"
 
 # Real SD captures only - see field_data/README.md. Ported from
 # simulation/server.py's handle_logs(), which is the same endpoint against

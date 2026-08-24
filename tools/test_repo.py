@@ -422,7 +422,17 @@ def test_pc_app() -> None:
         ok(f"{rel} exists", (ROOT / rel).exists())
 
     spec = read(ROOT / "pc_app" / "telemetry.spec")
-    ok("spec bundles static/", "datas=[('static', 'static')]" in spec)
+    # Matched on the entry rather than on the whole `datas=[...]` line: the
+    # original exact-string check broke the moment a second entry forced the
+    # list onto multiple lines, which is a formatting change, not a missing
+    # bundle. Test the thing that matters.
+    ok("spec bundles static/", "('static', 'static')" in spec)
+    # Without this the 4 alternate designs 404 in the .exe while working fine
+    # from source, and server.py logs the missing directory and serves on -
+    # so nothing fails loudly. Shipped broken for every build before
+    # 2026-08-23 for exactly that reason.
+    ok("spec bundles simulation/dashboards/",
+       "'dashboards'" in spec and "dashboards" in spec)
     ok("spec keeps the console", "console=True" in spec)
     ok("spec includes list_ports hidden import", "serial.tools.list_ports" in spec)
     ok("spec excludes QtWebEngine (no embedded Chromium, ever)",

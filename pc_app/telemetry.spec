@@ -36,7 +36,16 @@ a = Analysis(
     # Forgetting this produces an .exe that starts fine and then serves a 500
     # on the index page - which is why server.py names the missing path in the
     # error text.
-    datas=[('static', 'static')],
+    datas=[
+        ('static', 'static'),
+        # The 4 alternate dashboard designs. Without this they resolve fine
+        # from a source checkout and 404 in the .exe, which is a difference
+        # that only shows up after shipping - server.py logs "not found,
+        # only relevant in dev checkouts" and carries on. Destination name
+        # matches what server.py's DASHBOARDS_DIR looks for under
+        # paths.resource_dir() when frozen.
+        (os.path.join('..', 'simulation', 'dashboards'), 'dashboards'),
+    ],
 
     hiddenimports=[
         # Imported by name inside pyserial, so static analysis misses it.

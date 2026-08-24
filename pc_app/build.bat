@@ -75,10 +75,14 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Smoke test: native window (default mode) ===
+echo === Smoke test: default mode (browser dashboard) ===
 REM Start it, let it come up, confirm the process is still alive (not a
 REM crash-on-launch), kill it. This is the mode almost everyone will use.
-start "" /b dist\Telemetry.exe --sim
+REM --no-browser matters here: the default launch opens an Edge/Chrome
+REM app-mode window, and a build script has no business throwing a window
+REM in your face on the way past. It was only absent before because the
+REM default used to be the native Qt window.
+start "" /b dist\Telemetry.exe --sim --no-browser
 timeout /t 4 /nobreak >nul
 tasklist /fi "imagename eq Telemetry.exe" | find /i "Telemetry.exe" >nul
 if errorlevel 1 (
@@ -87,7 +91,7 @@ if errorlevel 1 (
     echo the log file next to the exe for details.
     exit /b 1
 )
-echo Native window came up and is still running.
+echo Default mode came up and is still running.
 taskkill /f /im Telemetry.exe >nul 2>&1
 
 echo.
@@ -97,6 +101,11 @@ REM you open the page.
 start "" /b dist\Telemetry.exe --web --sim --no-browser --http-port 8799
 timeout /t 6 /nobreak >nul
 curl -s -o nul -w "index page HTTP %%{http_code}\n" http://127.0.0.1:8799/
+REM Must be 200. The 4 alternate designs are bundled by telemetry.spec's
+REM datas; when they were not (every build before 2026-08-23) this route
+REM 404'd in the exe while working fine from source, and nothing caught it
+REM because server.py logs the missing directory and carries on serving.
+curl -s -o nul -w "dashboards   HTTP %%{http_code}\n" http://127.0.0.1:8799/dashboards/index.html
 curl -s http://127.0.0.1:8799/api/status
 echo.
 taskkill /f /im Telemetry.exe >nul 2>&1
@@ -110,13 +119,15 @@ echo ====================================================================
 echo  Built: dist\Telemetry.exe
 echo.
 echo  Double-click the Telemetry shortcut on your Desktop (or the exe
-echo  itself). With no arguments it looks for the E22 dongle and falls
-echo  back to the simulator if there isn't one.
+echo  itself). With no arguments it decodes the v2 wire format, looks for
+echo  the E22 dongle, and falls back to the simulator if there isn't one.
 echo.
-echo  It opens as its own native window - no browser, no Chrome or Edge
-echo  involved at all. Use "Telemetry.exe --web" if you want the old
-echo  browser-based dashboard instead (e.g. to view from your phone with
-echo  --host 0.0.0.0).
+echo  It opens the dashboard in an Edge/Chrome app-mode window - its own
+echo  taskbar entry, not a tab. Add --tab for a normal tab, or
+echo  --host 0.0.0.0 to watch from a phone on the same wifi.
+echo.
+echo  Reading the 1st Bluepill bench spare? That one still speaks the old
+echo  format: Telemetry.exe --proto v1
 echo.
 echo  Logs, CSVs and settings.json are written next to the exe.
 echo ====================================================================

@@ -1,6 +1,6 @@
 # Handoff — read this first
 
-Written 2026-08-12, updated 2026-08-16 for whoever (or whatever) picks this
+Written 2026-08-12, updated 2026-08-23 for whoever (or whatever) picks this
 up next. Assume no memory of prior conversations. This file is the
 orientation; the other docs are the detail.
 
@@ -318,32 +318,33 @@ rather than later.
 
 ## Immediate next steps, in order
 
-1. **Bench-test v2.** This is the real milestone, not yet done: flash all
-   four boards — 2nd Bluepill (Front), 3rd Bluepill (Rear), 1st Bluepill
-   (temporary Motor/E-CVT stand-in, `NODE_ID 3`), and the Nucleo hub — with
-   their now-v2 `main.c`. There is no v1 spare on the bus during this test.
-   Run `python run.py --proto v2 --port COM9` from `pc_app/` and confirm all
-   24 channels show up live, sourced from real hardware rather than the
-   Python simulator — including the Motor node, which should now be coming
-   from the 1st Bluepill's real CAN frames, not the hub's local simulation
-   (`HUB2_SIMULATE_NODE3` is `0` for this test). `tools/run_all_tests.py` is
-   green (15/15) at the library level, but that only proves the code is
-   internally consistent — it says nothing about the real CAN bus, the real
-   LoRa link, or real mailbox contention with 4 transmitters on one bus.
-2. **Measure real LoRa throughput** once v2 is flashed. Everything about the
-   80-byte frame fitting at 2 Hz rests on an unmeasured ~200 B/s assumption —
-   see `protocol/V2_DESIGN_NOTES.md` for the ranked fallbacks if it doesn't.
-3. **Commit and push.** 4 commits exist locally now (baseline, hub v2, the
-   sensor-header/CubeMX v3 start, and the .gitattributes line-ending fix);
-   still nothing on GitHub. `.gitignore` already excludes
+1. **Push to GitHub.** 15 commits exist locally; still nothing pushed, so
+   every bit of this is one disk failure from gone. Highest value per minute
+   on this list by a wide margin. `.gitignore` already excludes
    `pc_app/.browser-profile/` — verify with
    `git ls-files --cached | findstr browser-profile` → must print nothing —
    before pushing.
-4. Bench stages 3 (SD) and 4 (fault recovery) on v1 — hardware, needs Tate,
-   still not done regardless of the v2 work above.
-5. Once v2 is proven on the bench, v3 starts: wire real sensors into
-   `can_node_v2.c`'s `sim_read_channels()` and `telemetry_hub_v2.c`'s
-   `hub2_originate_node0/3()` one at a time, per `firmware/NODE_INTEGRATION_V2.md`.
+2. **Measure real LoRa throughput.** The last remaining unverified assumption
+   from the v2 design: everything about the 80-byte frame fitting at 2 Hz
+   rests on a ~200 B/s figure that came from a code comment and has never
+   been measured. Now cheap to do, since `--vcp` gives a wired reference feed
+   to compare the radio against. See `protocol/V2_DESIGN_NOTES.md` for the
+   ranked fallbacks if the real number comes in lower.
+3. **Start v3 sensor wiring.** CubeMX pin-out is done on all three boards, so
+   the next step is code: wire real sensors into `can_node_v2.c`'s
+   `sim_read_channels()` and `telemetry_hub_v2.c`'s `hub2_originate_node0/3()`
+   one at a time, per `firmware/NODE_INTEGRATION_V2.md`. Do them singly and
+   verify each against the real sensor before moving on —
+   `V3_BRINGUP_CHECKLIST.md` tracks per-sensor status.
+4. **Fix `imu_bno080.h` before turning on `HUB2_USE_REAL_IMU`.** That header
+   hardcodes `#include "stm32f1xx_hal.h"` (a Bluepill HAL), which does not
+   exist on the L476RG hub and will not compile there. Swap it to
+   `stm32l4xx_hal.h`. Known and deliberately left alone rather than patched
+   blind; it blocks the IMU half of node 0.
+5. **Confirm the ODrive `Get_Temperature` command ID** against `can_simple.dbc`
+   in the ODrive firmware repo before trusting `motor_temp` — it is the one
+   ODrive command ID in `firmware/sensors/odrive_can.c` that was a guess
+   rather than taken from the official protocol reference.
 6. Tate offered to send schematics for a wiring audit against `PINOUT.md`.
 
 ---

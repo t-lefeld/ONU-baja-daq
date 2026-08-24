@@ -1,11 +1,11 @@
 # Project status and what's left
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 > **If this file disagrees with `HANDOFF.md`, believe `HANDOFF.md`.** That one
 > is kept current as the orientation doc; this one is the longer task list and
 > lags behind it. Status claims here were last reconciled against it on
-> 2026-08-22.
+> 2026-08-23.
 
 ## The one-paragraph version
 
@@ -31,6 +31,13 @@ boards (Front, Rear, Hub). What is *not* done: no sensor driver has been wired
 into `can_node_v2.c`'s `sim_read_channels()` or `telemetry_hub_v2.c`'s
 `hub2_originate_node0/3()` yet, and nothing has been physically verified
 against a real sensor. `V3_BRINGUP_CHECKLIST.md` has exact per-sensor status.
+
+**The ground station now defaults to v2** (changed 2026-08-23). It defaulted to
+v1 for as long as v1 was the only thing flashed anywhere, which meant a
+double-clicked `Telemetry.exe` quietly decoded a v2 stream with a v1 decoder —
+no error, just a dashboard of wrong-but-plausible numbers. Pass `--proto v1`
+for the 1st Bluepill bench spare. The wire format is now logged on every run
+so a mismatch is visible in `logs/telemetry.log` after the fact.
 
 ---
 
@@ -65,14 +72,16 @@ These are the only items that can't be done at a keyboard.
       `tlm2_reasm_apply_page()` path real CAN frames use — see
       `firmware/NODE_INTEGRATION_V2.md`'s "Open questions" section for the
       reasoning.
-- [ ] **5. Bench-test the above on real hardware.** Nothing above has been
-      flashed or run yet — flash Front/Rear/Hub, leave the 1st Bluepill on
-      v1 as spare, run the ground station in `--proto v2`, confirm all 24
-      channels update from real hardware. This is the actual "v2 works" bar,
-      not the code being wired in.
-- [ ] **6. Bundle the new dashboards into the built .exe.** `pc_app/build.bat`
-      doesn't include `simulation/dashboards/`, so the 4 designs work when
-      running from source but would 404 in a PyInstaller build.
+- [x] **5. Bench-test the above on real hardware.** Done 2026-08-16 — all 24
+      channels confirmed updating from real hardware, with the 1st Bluepill
+      left on v1 as the bench spare.
+- [x] **6. Bundle the new dashboards into the built .exe.** Done 2026-08-23 —
+      `telemetry.spec` ships `simulation/dashboards/` as `dashboards/` in the
+      bundle, and `server.py` resolves that path through `paths.resource_dir()`
+      when frozen instead of walking `../../..`. `build.bat` now curls
+      `/dashboards/index.html` during the smoke test, because the old failure
+      was silent: the route 404'd in every shipped build while working from
+      source, and the server logs the missing directory and carries on.
 
 ## Track C — unverified assumptions worth checking before trusting
 
@@ -103,9 +112,11 @@ real hardware. Each would produce plausible-looking but wrong numbers.
 You asked to do these by hand. Every one is marked with a `TODO:` comment in
 the relevant driver — search `TODO` in `firmware/sensors/` for the full list.
 
-- [ ] **Generate the `.ioc` in CubeMX first** for any board gaining a
-      peripheral - see `firmware/PINOUT.md`. No `.ioc` has been generated
-      for the new sensors, and hand-editing one silently drops keys.
+- [x] **Generate the `.ioc` in CubeMX first** for any board gaining a
+      peripheral - see `firmware/PINOUT.md`. Done 2026-08-16 for all three
+      boards (Front, Rear, Hub). Still applies to any *future* board or
+      peripheral: generate it in CubeMX, never hand-edit, which silently
+      drops keys.
 - [ ] Pin assignments for every sensor (GPIO/EXTI, ADC channels, I2C, UART)
 - [ ] Tone-ring tooth counts and rolling circumference per wheel
 - [ ] Suspension pot endpoint voltages (compress fully, read; extend fully, read)
@@ -117,9 +128,10 @@ the relevant driver — search `TODO` in `firmware/sensors/` for the full list.
 
 ## Track E — repo hygiene
 
-- [ ] **Nothing is committed.** `git log` reports no commits at all; all 11
-      top-level entries are untracked. Weeks of work exists only on this one
-      disk. This is the highest-value five minutes available right now.
+- [x] **Get the work committed.** Done — the repo has real history now
+      (15 commits as of 2026-08-23). It is still local-only until the first
+      `git push`, so it remains one-disk-deep; that push is the remaining
+      half of this item.
 - [ ] Consider whether `field_data/` logs should be committed or kept local
       once they start getting large (`.gitignore` already has an exception
       carved out for them).
