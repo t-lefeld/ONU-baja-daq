@@ -28,7 +28,8 @@ No PCB shared yet for this board — pins in the guide are still suggestions
 Confirm/adjust against your actual Hub wiring before generating code.
 
 - [x] GPS (HGLRC M100): CubeMX USART3 config (done 2026-08-16 — PC4/PC5,
-      Asynchronous, 9600 baud per HGLRC M100's power-on default, RX interrupt
+      Asynchronous, 9600 baud — inherited from the NEO-M8N this replaced,
+      NOT verified against the M100; confirm before bring-up, RX interrupt
       enabled)
 - [ ] GPS: fill `gps_neo_m8n.h` TODOs
 - [ ] GPS: wire into `hub2_originate_node0()` (replaces sim `gps_lat`,

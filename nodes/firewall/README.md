@@ -18,7 +18,10 @@
 
 - Custom STM32L476RG board (Nucleo-variant design, not a stock Nucleo)
 - LoRa TX module: **E22-900T22D**, UART (the `-U` variant is the USB dongle at the pit end, not this one). Matches `firmware/nucleo_hub/lora_e22.c`
-- GPS: HGLRC Mini M100, UART, with external active antenna
+- GPS: HGLRC Mini M100, UART, with external active antenna. (Brand is
+  **HGLRC** — "HCLRC" is a common transposition and finds nothing.) The M100
+  is built on a 10th-generation u-blox chip, which is why older docs here
+  referred to a u-blox part
 - 9DOF IMU: BNO080, I2C (SCL/SDA on PB6/PB7, INT on PA0, RST on PA1). Some docs say BNO085; the two are interchangeable here — both speak SH-2 and the `imu_bno080` driver covers either
 - SD card on SPI (separate CS from LoRa)
 - CAN analyzer tap: 3-pin JST-XH/PH pigtail spliced onto the CAN bus wiring

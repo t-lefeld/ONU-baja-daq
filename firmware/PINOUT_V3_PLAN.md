@@ -37,7 +37,7 @@ PA11, PA12, PB0, PB6.
 
 | Sensor | Peripheral | Pins | CubeMX steps |
 |---|---|---|---|
-| HGLRC M100 GPS | USART3, RX only (module TX → MCU RX; module's RX line can be left unconnected since this is read-only NMEA) | PC5 = USART3_RX (PC4 = USART3_TX, wire it up too even if unused, costs nothing) | Enable USART3 in Asynchronous mode, default 9600 baud (HGLRC M100's power-on default — raise it later if you reconfigure the module), Generate Code |
+| HGLRC M100 GPS | USART3, RX only (module TX → MCU RX; module's RX line can be left unconnected since this is read-only NMEA) | PC5 = USART3_RX (PC4 = USART3_TX, wire it up too even if unused, costs nothing) | Enable USART3 in Asynchronous mode, default 9600 baud (**unverified for the M100** — this figure was inherited from the NEO-M8N it replaced; confirm the module's actual power-on rate, then raise it if you reconfigure), Generate Code |
 | BNO080 IMU | I2C1 | PB8 = I2C1_SCL, PB9 = I2C1_SDA, PB3 = RST (GPIO output), PB4 = INT (GPIO input, EXTI optional — `imu_bno080.c` can also be polled) | Enable I2C1 (standard 100kHz to start), set PB3 as GPIO_Output, PB4 as GPIO_Input (or GPIO_EXTI_Falling if you want interrupt-driven reads), Generate Code |
 
 Confirm PB3/PB4 are actually broken out on your Nucleo's headers before

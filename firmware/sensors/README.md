@@ -27,8 +27,10 @@ NEO-M8N and `suspension_pot.*` for a potentiometer; the car now uses an HGLRC
 Mini M100 and an AS5600. The files were not renamed, because in both cases
 the driver logic still applies:
 
-- The M100 is read-only NMEA over UART, same as the M8N. Check the module's
-  power-on baud rate against the `9600` the driver assumes.
+- The M100 is a u-blox M10-based module emitting read-only NMEA over UART,
+  same shape as the M8N, so the parser carries over. **Check the module's
+  power-on baud rate against the `9600` the driver assumes** — that figure
+  came from the M8N and has not been verified against the M100.
 - The AS5600 runs in **analog output** mode (its I2C address is fixed at
   `0x36`, so the two per node would collide), which means it is read through
   the ADC exactly like the pot was — same divider, same two-point
