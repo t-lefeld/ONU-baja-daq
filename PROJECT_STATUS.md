@@ -119,7 +119,7 @@ the relevant driver — search `TODO` in `firmware/sensors/` for the full list.
       drops keys.
 - [ ] Pin assignments for every sensor (GPIO/EXTI, ADC channels, I2C, UART)
 - [ ] Tone-ring tooth counts and rolling circumference per wheel
-- [ ] Suspension pot endpoint voltages (compress fully, read; extend fully, read)
+- [ ] Suspension encoder endpoint voltages (compress fully, read; extend fully, read)
 - [ ] Brake transducer divider sizing + endpoint calibration
 - [ ] ODrive `axis_node_id` — must match what you configured, and must not
       collide with the `0x200` block v2 uses

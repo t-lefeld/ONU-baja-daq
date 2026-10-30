@@ -58,7 +58,7 @@ Custom PCB based on the STM32L476RG (Nucleo-variant design, not a stock Nucleo b
 |---|---|
 | E22-900T22D LoRa module | Radios data to the pit |
 | HCLRC M100 GPS + external active antenna | Position and speed |
-| BNO080 9-DOF IMU | Orientation, acceleration, rotation |
+| BNO080 9-DOF IMU | Orientation, acceleration, rotation (some docs say BNO085; interchangeable here) |
 | CAN analyzer | Watches all bus traffic |
 | SD card | Backup log, so a dropped radio packet costs nothing |
 
@@ -72,8 +72,8 @@ STM32F103 Bluepill.
 
 | Part | What it measures |
 |---|---|
-| Littelfuse 55505-00-02-A-ND gear tooth sensor | Front wheel speed |
-| AS5600 Hall-effect encoder on the bellcrank | Front suspension travel |
+| Littelfuse 55505-00-02-A-ND gear tooth sensor ×2 | Wheel speed, one per front wheel |
+| AS5600 Hall-effect encoder on the bellcrank ×2 | Suspension travel, one per corner (analog output) |
 | Anfield T200/T201 pressure transducers | Brake pressure |
 | Suspension pressure transducer | Shock nitrogen pressure (**testing only**) |
 
@@ -85,8 +85,8 @@ STM32F103 Bluepill.
 
 | Part | What it measures |
 |---|---|
-| Littelfuse 55505-00-02-A-ND gear tooth sensor | Rear wheel speed |
-| AS5600 Hall-effect encoder on the bellcrank | Rear suspension travel |
+| Littelfuse 55505-00-02-A-ND gear tooth sensor ×1 | **Brake disc** speed — only one at the rear, and it does not read a wheel hub |
+| AS5600 Hall-effect encoder on the bellcrank ×2 | Suspension travel, one per corner (analog output) |
 | MLX90614 infrared temperature sensor | CVT and brake disc temperature |
 | Suspension pressure transducer | Shock nitrogen pressure (**testing only**) |
 
@@ -190,19 +190,24 @@ the v2 wire format (24 channels × 4 nodes, `protocol/telemetry_proto_v2.*`), th
 
 If a folder isn't in the first list, assume it's scaffolding until its own README says otherwise.
 
-### Known documentation drift
+### Naming quirks that will confuse you
 
-Parts of this repo were written at different times and disagree with the hardware table above. Trust the hardware table; these are being corrected:
+The hardware docs were reconciled against the car on 2026-10-30. Two things
+still look wrong and aren't:
 
-- `firmware/sensors/` and `nodes/` list **Bourns 53AAA-B28-B15L suspension pots** and **Littelfuse 55075** encoders. The car uses **AS5600 encoders** and **Littelfuse 55505-00-02-A-ND**.
-- `firmware/sensors/` lists a **u-blox NEO-M8N** GPS. The firewall node uses an **HCLRC M100**.
-- `can/README.md` describes the firewall as an "aggregator, no sensors." It carries GPS, IMU, LoRa and SD.
-- `can/README.md` points at a `can/baja.dbc` that is not in the repo.
-- Some docs describe 3 or 4 nodes. The hardware design is **5**.
-- `nodes/` has folders for front, rear, eCVT and firewall only — **there is no display node folder yet**, and the DeWalt power architecture isn't written down anywhere but here.
-- Older notes mention a FastAPI/SQLite dashboard backend. It was dropped; logging is `.TLM` + CSV.
-- `telemetry/lora/` and `suspension/travel-sensor/` contain a README and nothing else.
-- `scratch_delete_probe.txt` in the repo root is leftover scratch and can be deleted.
+- **`gps_neo_m8n.*` and `suspension_pot.*`** are named after parts that are no
+  longer used (u-blox NEO-M8N, Bourns 53AAA pot). The files weren't renamed
+  because the driver logic still applies: the M100 is read-only NMEA over UART
+  like the M8N, and the AS5600 in analog mode is read through the ADC exactly
+  like the pot was. Rename them next time you touch the code; don't let the
+  filename convince you of the part.
+- **The simulator carries a `wheel_speed_rr` channel the car doesn't have.**
+  The rear has one gear tooth sensor, on the brake disc. The extra channel is
+  a leftover of the symmetric 24-channel sim layout.
+
+If you find any other doc still saying Littelfuse 55075, Bourns 53AAA,
+NEO-M8N, E32-900T30D, or a FastAPI/SQLite backend, it was missed — those are
+all superseded.
 
 ---
 
@@ -219,7 +224,7 @@ firmware/
 pc_app/       ground station: serial reader, dashboard, CSV     [v1 RUNNING]
 simulation/   synthetic sensor feed + dashboards, no hardware needed
 field_data/   real .TLM/.csv logs from actual test sessions
-nodes/        per-node hardware notes: front, rear, ecvt, firewall
+nodes/        per-node hardware notes: front, rear, ecvt, firewall, display
 hardware/     connector and enclosure notes
 can/          CAN topology notes (see drift warning above)
 suspension/   bellcrank travel-sensor notes

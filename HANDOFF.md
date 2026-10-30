@@ -25,9 +25,16 @@ hub as a black box in case the radio drops.
 - Programming: a Black Magic Probe (a Black Pill flashed with BMP firmware)
   for the Bluepills over PlatformIO; the Nucleo uses its own onboard ST-Link.
 
-**Planned but not yet wired:** u-blox NEO-M8N GPS, BNO080 IMU, 4× Littelfuse
-55075 wheel encoders, 4× Bourns 53AAA suspension pots, Anfield T200/T201
-brake pressure, MLX90614 CVT temp, ODrive S1 motor controller.
+**Planned but not yet wired:** HGLRC Mini M100 GPS, BNO080 IMU, 3× Littelfuse
+55505-00-02-A-ND gear tooth sensors (two front wheels, one on the rear brake
+disc), 4× AS5600 suspension encoders on bellcranks (one per corner, run in
+analog-output mode), Anfield T200/T201 brake pressure, MLX90614 temperature,
+ODrive S1 motor controller.
+
+Part numbers above were corrected on 2026-10-30. Older docs may still say
+NEO-M8N, Littelfuse 55075, or Bourns 53AAA pots — those are superseded. Note
+the driver files `gps_neo_m8n.*` and `suspension_pot.*` keep their old names;
+see `firmware/sensors/README.md` for why that's harmless.
 
 ---
 

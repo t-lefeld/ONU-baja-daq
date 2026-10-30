@@ -1,7 +1,10 @@
 # LoRa Telemetry
 
 **Frequency:** 915MHz ISM band  
-**TX module:** E32-900T30D (Firewall node, vehicle)  
+**TX module:** E22-900T22D (Firewall node, vehicle) — the `-D` variant has
+UART pins; `-U` is the USB dongle at the pit end. Matches
+`firmware/nucleo_hub/lora_e22.c`. Earlier revisions of this file said
+E32-900T30D; that is superseded.  
 **RX module:** E22-900T22U (pit) — USB-interface LoRa dongle, no onboard MCU
 
 ## Link Architecture
@@ -13,11 +16,13 @@
                               [Browser Dashboard]
                               Web Serial API
                                        │
-                                  optional
                                        ▼
-                          [FastAPI/SQLite backend]
-                          POST /telemetry, persistent log
+                              [.TLM + CSV session log]
 ```
+
+**Note:** earlier revisions of this diagram showed an optional FastAPI/SQLite
+backend at the bottom. That was dropped along with `telemetry/dashboard/`;
+logging is now `.TLM` + CSV from `pc_app/`, plus the firewall's SD card.
 
 The receiver plugs directly into the pit laptop's USB port and enumerates as a
 serial device — there's no WiFi AP or intermediate microcontroller in this

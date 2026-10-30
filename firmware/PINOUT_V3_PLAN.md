@@ -37,7 +37,7 @@ PA11, PA12, PB0, PB6.
 
 | Sensor | Peripheral | Pins | CubeMX steps |
 |---|---|---|---|
-| NEO-M8N GPS | USART3, RX only (module TX → MCU RX; module's RX line can be left unconnected since this is read-only NMEA) | PC5 = USART3_RX (PC4 = USART3_TX, wire it up too even if unused, costs nothing) | Enable USART3 in Asynchronous mode, default 9600 baud (NEO-M8N's power-on default — raise it later if you reconfigure the module), Generate Code |
+| HGLRC M100 GPS | USART3, RX only (module TX → MCU RX; module's RX line can be left unconnected since this is read-only NMEA) | PC5 = USART3_RX (PC4 = USART3_TX, wire it up too even if unused, costs nothing) | Enable USART3 in Asynchronous mode, default 9600 baud (HGLRC M100's power-on default — raise it later if you reconfigure the module), Generate Code |
 | BNO080 IMU | I2C1 | PB8 = I2C1_SCL, PB9 = I2C1_SDA, PB3 = RST (GPIO output), PB4 = INT (GPIO input, EXTI optional — `imu_bno080.c` can also be polled) | Enable I2C1 (standard 100kHz to start), set PB3 as GPIO_Output, PB4 as GPIO_Input (or GPIO_EXTI_Falling if you want interrupt-driven reads), Generate Code |
 
 Confirm PB3/PB4 are actually broken out on your Nucleo's headers before
@@ -58,8 +58,8 @@ Already taken (do not reuse): PA11, PA12, PA13, PA14.
 |---|---|---|---|---|
 | Wheel encoder L | GPIO + EXTI | PA0 | Front + Rear | GPIO_EXTI_Rising (or Falling, match your encoder's output), Generate Code |
 | Wheel encoder R | GPIO + EXTI | PA1 | Front + Rear | **Different pin number from L, satisfies the EXTI-sharing rule** — PA0/PA1 are separate EXTI lines |
-| Suspension pot L | ADC1 (IN4) | PA4 | Front + Rear | Enable ADC1, IN4 channel |
-| Suspension pot R | ADC1 (IN5) | PA5 | Front + Rear | Same ADC1, IN5 channel — remember `suspension_pot.c`'s `TODO` about re-selecting the channel via `HAL_ADC_ConfigChannel()` before each read, since it shares the ADC with the encoders' neighbors |
+| Suspension encoder L | ADC1 (IN4) | PA4 | Front + Rear | Enable ADC1, IN4 channel |
+| Suspension encoder R | ADC1 (IN5) | PA5 | Front + Rear | Same ADC1, IN5 channel — remember `suspension_pot.c`'s `TODO` about re-selecting the channel via `HAL_ADC_ConfigChannel()` before each read, since it shares the ADC with the encoders' neighbors |
 | Pressure transducer 1 (primary) | ADC1 (IN6) | PA6 | **Front only** | Same ADC1, IN6. Needs the resistor divider from `pressure_transducer.h`'s `TODO` to bring 0.5-4.5V into 3.3V range |
 | Pressure transducer 2 (redundant/backup) | ADC1 (IN7) | PA7 | **Front only** | Same sensor reading as transducer 1 — read it, but treat transducer 1 as the value that goes on the wire unless it looks wrong. Worth deciding now: average both, or fail over to #2 only if #1 reads implausibly (stuck/out of range)? |
 | CVT thermistor (MLX90614, I2C, address 0x5A) | I2C1 | **PB7/PB8 as currently laid out is NOT a valid hardware I2C1 pair on the F103** (valid pairs are PB6+PB7 default, or PB8+PB9 remapped) | **Rear only** | Tate is fixing this on the PCB — simplest fix is rerouting just the SCL trace from PB8 to PB6 (keeps PB7/SDA as already wired, uses I2C1 in its default, non-remapped mode, no AFIO remap needed in firmware). Update this row once the board's corrected. |

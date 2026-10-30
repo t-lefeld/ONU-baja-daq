@@ -22,17 +22,23 @@ of `server.py` and `quantization_report.py` for details.
 
 | Node | Label | Channels | Real sensor |
 |---|---|---|---|
-| 0 | Hub - GPS/IMU | gps_lat, gps_lon, gps_speed, gps_heading, gps_sats | u-blox NEO-M8N GPS w/ U.FL + external active antenna |
+| 0 | Hub - GPS/IMU | gps_lat, gps_lon, gps_speed, gps_heading, gps_sats | HGLRC Mini M100 GPS + external active antenna |
 | 0 | Hub - GPS/IMU | accel_x, accel_y, accel_z, gyro_z | BNO080 9DOF IMU |
-| 1 | Front | wheel_speed_fl, wheel_speed_fr | Littelfuse 55075 gear tooth sensors |
-| 1 | Front | suspension_fl, suspension_fr | Bourns 53AAA-B28-B15L rotary pot on bellcrank |
+| 1 | Front | wheel_speed_fl, wheel_speed_fr | Littelfuse 55505-00-02-A-ND gear tooth sensors |
+| 1 | Front | suspension_fl, suspension_fr | AS5600 Hall-effect encoder on bellcrank (analog output) |
 | 1 | Front | brake_pressure_f | Anfield T200/T201 pressure transducer |
-| 2 | Rear | wheel_speed_rl, wheel_speed_rr | Littelfuse 55075 gear tooth sensors |
-| 2 | Rear | suspension_rl, suspension_rr | Bourns 53AAA-B28-B15L rotary pot on bellcrank |
-| 2 | Rear | cvt_temp | MLX90614 IR temperature sensor |
+| 2 | Rear | wheel_speed_rl, wheel_speed_rr | Littelfuse 55505-00-02-A-ND — **one sensor only, on the brake disc**; see note below |
+| 2 | Rear | suspension_rl, suspension_rr | AS5600 Hall-effect encoder on bellcrank (analog output) |
+| 2 | Rear | cvt_temp | MLX90614 IR temperature sensor (CVT and brake disc) |
 | 3 | E-CVT / Motor | motor_current, motor_velocity, motor_temp | ODrive S1 controlling an ODrive D5065 (built-in thermistor) |
 | 3 | E-CVT / Motor | bus_voltage | Battery pack rail as seen by the ODrive |
 | 3 | E-CVT / Motor | brake_resistor_w | 2 ohm / 50 W brake resistor dissipation during regen |
+
+**The simulated channel set does not exactly match the car.** The sim carries
+`wheel_speed_rl` and `wheel_speed_rr`, but the rear node has only **one**
+gear tooth sensor, reading the brake disc. The extra rear channel is a
+leftover of the symmetric 24-channel layout. Leave it alone if you're only
+developing dashboards; reconcile it when the real rear node goes on the wire.
 
 All 24 channels are deterministic functions of elapsed time (see
 `vehicle_data.py`) - a simulated 60-second lap: accelerate, corner, brake,

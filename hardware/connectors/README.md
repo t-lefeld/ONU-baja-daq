@@ -31,16 +31,27 @@ All harness connectors use the Deutsch DT and DTM series throughout the vehicle 
 
 | Sensor | Node(s) | Connector | Keyway |
 |--------|---------|-----------|--------|
-| Wheel hub encoder (Littelfuse 55075) | Front, Rear | DTM04-3P | Key A |
-| Suspension bellcrank pot (Bourns 53AAA-B28-B15L) | Front, Rear | DTM04-3P | Key B |
-| Pressure transducer (Anfield T200/T201) | Front | DT04-3P or DT04-4P (match ordered variant) | — |
-| E-CVT belt temp (MLX90614, I2C — needs VDD/GND/SDA/SCL) | Rear | DTM04-4P | — |
-| CAN bus trunk | Front, Rear, Firewall | DT04-4P | — |
+| Gear tooth encoder (Littelfuse 55505-00-02-A-ND) | Front ×2, Rear ×1 | DTM04-3P | Key A |
+| Suspension bellcrank encoder (AS5600, analog out) | Front ×2, Rear ×2 | DTM04-3P | Key B |
+| Brake pressure transducer (Anfield T200/T201) | Front | DT04-3P or DT04-4P (match ordered variant) | — |
+| Temperature (MLX90614, I2C — needs VDD/GND/SDA/SCL) | Rear | DTM04-4P | — |
+| CAN bus trunk | Front, Rear, Firewall, Display | DT04-4P | — |
 
-Front and Rear each carry two DTM04-3P connectors (encoder + pot) that look
-identical — order them in different Deutsch keyways (Key A vs Key B) so they
-physically can't be cross-plugged, on top of labeling both ends of the
-harness cable and documenting the mapping in a wiring table.
+Front and Rear each carry several DTM04-3P connectors that look identical —
+order them in different Deutsch keyways (Key A for gear tooth encoders, Key B
+for suspension encoders) so they physically can't be cross-plugged, on top of
+labeling both ends of the harness cable and documenting the mapping in a
+wiring table.
+
+**Keying alone no longer distinguishes left from right.** The Front node now
+has two Key A connectors (FL, FR) and two Key B (FL, FR), and the Rear node
+two Key B. Same-key connectors on one node *can* be cross-plugged, which
+swaps left and right without any error — the data looks plausible and is
+simply mirrored. Label them, and verify at bring-up by moving one corner at a
+time and watching which channel responds.
+
+The shock nitrogen pressure transducers are a **testing instrument only** and
+are not part of the race harness — don't allocate connectors for them.
 
 ## Crimping Notes
 

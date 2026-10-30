@@ -24,11 +24,11 @@ which one broke if something doesn't read right.
 ## Hub (Nucleo-L476RG) — node 0
 
 No PCB shared yet for this board — pins in the guide are still suggestions
-(NEO-M8N on USART3 PC4/PC5, BNO080 on I2C1 PB8/PB9 + INT/RST on PB1/PB2).
+(HGLRC M100 on USART3 PC4/PC5, BNO080 on I2C1 PB8/PB9 + INT/RST on PB1/PB2).
 Confirm/adjust against your actual Hub wiring before generating code.
 
-- [x] GPS (NEO-M8N): CubeMX USART3 config (done 2026-08-16 — PC4/PC5,
-      Asynchronous, 9600 baud per NEO-M8N's power-on default, RX interrupt
+- [x] GPS (HGLRC M100): CubeMX USART3 config (done 2026-08-16 — PC4/PC5,
+      Asynchronous, 9600 baud per HGLRC M100's power-on default, RX interrupt
       enabled)
 - [ ] GPS: fill `gps_neo_m8n.h` TODOs
 - [ ] GPS: wire into `hub2_originate_node0()` (replaces sim `gps_lat`,
@@ -62,7 +62,7 @@ wiring `brake_pressure_f` (see guide's calibration section 3).
 - [ ] Encoders: wire into Front's channel packing (replaces sim
       `wheel_speed_fl`, `wheel_speed_fr`)
 - [ ] Encoders: verify — spin wheel by hand (Part 2, wheel encoder row)
-- [x] Suspension pots (FL+FR): CubeMX ADC1 on PA4/PA5 (done 2026-08-16)
+- [x] Suspension encoders (FL+FR): CubeMX ADC1 on PA4/PA5 (done 2026-08-16)
 - [ ] Suspension: fill `suspension_pot.h` TODOs (Vmin/Vmax endpoint
       calibration — measure by hand, guide's calibration section 1)
 - [ ] Suspension: wire into Front's channel packing (replaces sim
@@ -91,7 +91,7 @@ keep SDA on PB7).
 - [ ] Encoders: wire into Rear's channel packing (replaces sim
       `wheel_speed_rl`, `wheel_speed_rr`)
 - [ ] Encoders: verify — spin wheel by hand
-- [x] Suspension pots (RL+RR): CubeMX ADC1 on PA4/PA5 (done 2026-08-16)
+- [x] Suspension encoders (RL+RR): CubeMX ADC1 on PA4/PA5 (done 2026-08-16)
 - [ ] Suspension: fill `suspension_pot.h` TODOs
 - [ ] Suspension: wire into Rear's channel packing (replaces sim
       `suspension_rl`, `suspension_rr`)

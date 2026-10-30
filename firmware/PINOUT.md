@@ -85,20 +85,20 @@ Everything else is free. All three boards are identical; only
 
 | Sensor | Needs | Free candidates | Watch out for |
 |---|---|---|---|
-| NEO-M8N GPS | 1× UART RX (TX optional) | USART3 on PC4/PC5, or LPUART1 | Only the module's TX → your RX matters for read-only NMEA |
+| HGLRC M100 GPS | 1× UART RX (TX optional) | USART3 on PC4/PC5, or LPUART1 | Only the module's TX → your RX matters for read-only NMEA |
 | BNO080 IMU | I2C (SCL+SDA) + INT + RST | I2C1 on PB8/PB9 | Needs a RST pulse at power-up; that GPIO is board-specific and the driver expects the caller to do it |
 
 Avoid PA5/PA6/PA7 even though they look free in CubeMX — `sd_spi.c` owns them.
 
 ### Front / Rear Bluepills — nodes 1 and 2
 
-Each needs 2 wheel encoders, 2 suspension pots, plus one of brake pressure
+Each needs 2 wheel encoders, 2 suspension encoders, plus one of brake pressure
 (Front) or CVT temp (Rear).
 
 | Sensor | Needs | Notes |
 |---|---|---|
 | Wheel encoder ×2 | GPIO + EXTI, one per wheel | **see the EXTI trap below** |
-| Suspension pot ×2 | ADC channel each | ADC1 channels live on PA0–PA7, PB0–PB1 |
+| Suspension encoder ×2 | ADC channel each | ADC1 channels live on PA0–PA7, PB0–PB1 |
 | Brake pressure (Front) | ADC channel | 0.5–4.5 V sensor needs a divider to reach 3.3 V |
 | CVT temp (Rear) | I2C | MLX90614 at 0x5A, fixed |
 

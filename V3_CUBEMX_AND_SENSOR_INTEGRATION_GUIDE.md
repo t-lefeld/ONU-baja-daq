@@ -5,7 +5,7 @@ This guide details the complete hardware pinout matrix, STM32CubeMX `.ioc` confi
 **Corrected 2026-08-16 to match Tate's actual PCB ("Firewall PCB" schematic)
 for Front/Rear.** This file previously had the earlier suggested pins (from
 `firmware/PINOUT_V3_PLAN.md`'s first draft) for Front/Rear wheel encoders,
-suspension pots, and brake pressure — those have been replaced below with
+suspension sensors, and brake pressure — those have been replaced below with
 what's actually traced on the board. `firmware/PINOUT_V3_PLAN.md` still
 exists as the running log of that discovery (screenshots, the back-and-forth
 on the CVT I2C pin problem) but this file is now the single canonical pinout
@@ -33,7 +33,7 @@ remain suggestions until you have one).
 | **microSD Card CS** | `PB6` | `GPIO_Output` | Output Push-Pull, High (idles high) | Software Chip Select |
 | **ST-Link Debug TX**| `PA2` | `USART2` | USART2_TX (Asynchronous, 115200 8N1) | VCP telemetry mirroring |
 | **ST-Link Debug RX**| `PA3` | `USART2` | USART2_RX (Asynchronous, 115200 8N1) | VCP console input |
-| **NEO-M8N GPS RX** | `PC5` | `USART3` | USART3_RX (Asynchronous, 9600 8N1, **RX Interrupt**) | Connects to GPS Module TX pin |
+| **HGLRC M100 GPS RX** | `PC5` | `USART3` | USART3_RX (Asynchronous, 9600 8N1, **RX Interrupt**) | Connects to GPS Module TX pin. **Confirm the M100's power-on baud rate** — the 9600 here came from the NEO-M8N this replaced. |
 | **BNO080 IMU SCL** | `PB8` | `I2C1` | I2C1_SCL (Standard 100 kHz / Fast 400 kHz) | $4.7\,\text{k}\Omega$ external pull-up |
 | **BNO080 IMU SDA** | `PB9` | `I2C1` | I2C1_SDA (Standard 100 kHz / Fast 400 kHz) | $4.7\,\text{k}\Omega$ external pull-up |
 | **BNO080 IMU INT** | `PB1` | `GPIO_EXTI1`| External Interrupt, Falling edge, Pull-up | Data ready interrupt |
@@ -54,8 +54,8 @@ suggestion.** Front's connector is populated with two pressure transducers
 | **SWD Debug** | `PA13 / PA14`| `SYS_SWD` | Serial Wire | Do not reassign |
 | **Wheel Speed FL** (`FWHEELSPDL`) | `PA0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor (open-collector) |
 | **Wheel Speed FR** (`FWHEELSPDR`) | `PA1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be a different pin number from FL** (avoids EXTI-line conflict) |
-| **Suspension Pot FL** (`FPOTL`) | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **Suspension Pot FR** (`FPOTR`) | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
+| **Suspension Encoder FL** (`FPOTL`) | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | AS5600 `OUT` pin (analog mode) |
+| **Suspension Encoder FR** (`FPOTR`) | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | AS5600 `OUT` pin (analog mode) |
 | **Pressure Transducer 1 (primary)** (`PREST1`) | `PA6` | `ADC1_IN6` | 12-bit Single Conversion, 239.5 cycles sample | From resistor divider ($0.5\text{V}-4.5\text{V} \rightarrow 0.36\text{V}-3.28\text{V}$) — this is the value that goes on the wire as `brake_pressure_f` |
 | **Pressure Transducer 2 (redundant/backup)** (`PREST2`) | `PA7` | `ADC1_IN7` | 12-bit Single Conversion, 239.5 cycles sample | Same physical measurement as PREST1 — read for sanity-checking/failover, not sent as a separate channel |
 
@@ -74,10 +74,10 @@ transducers).
 | **SWD Debug** | `PA13 / PA14`| `SYS_SWD` | Serial Wire | Do not reassign |
 | **Wheel Speed RL** | `PA0` | `GPIO_EXTI0` | Input with Pull-up, Falling Edge Interrupt | Hall gear-tooth sensor |
 | **Wheel Speed RR** | `PA1` | `GPIO_EXTI1` | Input with Pull-up, Falling Edge Interrupt | **Must be a different pin number from RL** |
-| **Suspension Pot RL** | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **Suspension Pot RR** | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | Center wiper of Bourns 53AAA |
-| **CVT Temp MLX90614 SCL** | `PB6` | `I2C1` | I2C1_SCL (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). **PCB currently traces this to PB8 — not a valid hardware I2C1 pin paired with PB7. Reroute this trace to PB6 before bring-up** (default I2C1 pins are PB6/PB7; no AFIO remap needed once fixed). |
-| **CVT Temp MLX90614 SDA** | `PB7` | `I2C1` | I2C1_SDA (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). Already correctly wired on the current PCB — only the SCL trace needs to move. |
+| **Suspension Encoder RL** | `PA4` | `ADC1_IN4` | 12-bit Single Conversion, 239.5 cycles sample | AS5600 `OUT` pin (analog mode) |
+| **Suspension Encoder RR** | `PA5` | `ADC1_IN5` | 12-bit Single Conversion, 239.5 cycles sample | AS5600 `OUT` pin (analog mode) |
+| **MLX90614 SCL** | `PB6` | `I2C1` | I2C1_SCL (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). **PCB currently traces this to PB8 — not a valid hardware I2C1 pin paired with PB7. Reroute this trace to PB6 before bring-up** (default I2C1 pins are PB6/PB7; no AFIO remap needed once fixed). |
+| **MLX90614 SDA** | `PB7` | `I2C1` | I2C1_SDA (Standard 100 kHz) | $4.7\,\text{k}\Omega$ pull-up (Address 0x5A). Already correctly wired on the current PCB — only the SCL trace needs to move. |
 
 ---
 
@@ -106,14 +106,18 @@ transducers).
 
 Before trusting live data in the pit:
 
-### 1. Suspension Pots (Bourns 53AAA)
+### 1. Suspension Encoders (AS5600, analog output)
+* **Sweep the full bump-to-droop range first and confirm the voltage is monotonic.** The AS5600 wraps past its single-turn range instead of clipping, so over-travel reads as a sudden jump to the opposite extreme. If you see that jump, fix the magnet alignment or bellcrank arm length *before* calibrating — a two-point calibration over a wrapped range encodes nonsense.
 * Measure raw voltage at full compression: $V_{min}$ (e.g., $0.45\,\text{V}$).
 * Measure raw voltage at full extension: $V_{max}$ (e.g., $2.85\,\text{V}$).
 * Enter measured values into `suspension_pot_init(&sp, &hadc1, channel, V_min, V_max, travel_mm)`.
+* Calibrate each corner separately — four sensors, four sets of constants.
+* The driver is still named `suspension_pot` because the AS5600's analog output is read exactly like the potentiometer it replaced. See `suspension/travel-sensor/README.md`.
 
-### 2. Wheel Encoders (Littelfuse 55075)
-* Count exact tone ring tooth count ($N_{teeth}$, typically 18–36).
-* Measure tire rolling circumference ($C_m$, roll tire 1 revolution under load, measure distance in meters, e.g. $1.72\,\text{m}$).
+### 2. Gear Tooth Encoders (Littelfuse 55505-00-02-A-ND)
+* **Three sensors, not four:** one per front wheel, plus a single rear sensor reading the **brake disc** rather than a wheel hub.
+* Front: count exact tone ring tooth count ($N_{teeth}$, typically 18–36), measure tire rolling circumference ($C_m$, roll tire 1 revolution under load, e.g. $1.72\,\text{m}$).
+* Rear: the brake disc has its own tooth count and effective circumference — **calibrate it separately, do not reuse the front constant.**
 * Enter into `wheel_encoder_init(&enc, port, pin, N_teeth, C_m)`.
 
 ### 3. Brake Pressure Transducers (Anfield T200/T201) — two, PREST1 + PREST2
@@ -122,10 +126,10 @@ Before trusting live data in the pit:
 * Calibrate zero offset ($V_0 \approx 0.36\,\text{V}$ at 0 psi) and span ($K_{psi/V} \approx 685\,\text{psi/V}$) — **for both PREST1 and PREST2 separately**, they're two physical sensors and may not read identically even at the same pressure.
 * Decide before wiring in: does `brake_pressure_f` come from PREST1 alone with PREST2 read-but-unused (simplest), or averaged, or PREST2 as failover if PREST1 reads implausibly? Pick one and note it in `can_node_v2.c` where the channel is packed.
 
-### 4. MLX90614 CVT Infrared Thermometer
+### 4. MLX90614 Infrared Thermometer (CVT and brake disc)
 * Align sensor aiming directly at the CVT belt center with $20\,\text{mm}-40\,\text{mm}$ standoff.
 * Compare cold temperature reading against ambient thermometer ($<2^\circ\text{C}$ error).
 
-### 5. NEO-M8N GPS & BNO080 IMU
+### 5. HGLRC Mini M100 GPS & BNO080 IMU
 * Walk antenna near window / outdoors $\rightarrow$ confirm satellites rise to $\ge 8$ within 45s.
 * Place Hub flat on table $\rightarrow$ verify `accel_z` reads $1.000\,\text{g} \pm 0.05\,\text{g}$, `accel_x/y` read $\approx 0.00\,\text{g}$.

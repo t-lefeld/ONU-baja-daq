@@ -6,20 +6,20 @@
 
 ## Responsibilities
 
-- Receives all CAN messages from corner nodes
+- Receives all CAN messages from the corner nodes and the eCVT's ODrive S1
 - Logs raw CAN frames to SD card (continuous, independent of LoRa link)
 - Reads GPS position/speed and 9DOF IMU (orientation/acceleration)
 - Packetizes and transmits data (CAN + GPS + IMU) over LoRa at 915MHz
-- Distributes switched power to corner nodes
+- Distributes power to every other DAQ node from the DeWalt packs
 - Hosts main vehicle harness connector interface
 - Provides an internal CAN analyzer tap for diagnostics (lid-accessible)
 
 ## Hardware
 
-- Nucleo L476RG on custom carrier PCB (see `/hardware/firewall-pcb/`)
-- LoRa TX module: E32-900T30D, UART
-- GPS: HGLRC Mini M100, UART
-- 9DOF IMU: BNO085, I2C (SCL/SDA on PB6/PB7, INT on PA0, RST on PA1)
+- Custom STM32L476RG board (Nucleo-variant design, not a stock Nucleo)
+- LoRa TX module: **E22-900T22D**, UART (the `-U` variant is the USB dongle at the pit end, not this one). Matches `firmware/nucleo_hub/lora_e22.c`
+- GPS: HGLRC Mini M100, UART, with external active antenna
+- 9DOF IMU: BNO080, I2C (SCL/SDA on PB6/PB7, INT on PA0, RST on PA1). Some docs say BNO085; the two are interchangeable here — both speak SH-2 and the `imu_bno080` driver covers either
 - SD card on SPI (separate CS from LoRa)
 - CAN analyzer tap: 3-pin JST-XH/PH pigtail spliced onto the CAN bus wiring
   inside the enclosure — internal only, no environmental sealing needed since
@@ -48,11 +48,36 @@
 
 ## Power Distribution
 
+**The firewall node powers the entire DAQ system, and it always will.** Every
+battery lands here. This is deliberate: noise filtering is painful to get
+right, so it is done once, in one place, rather than repeated badly at every
+node.
+
+**Source:** DeWalt 20V MAX packs (5S, 15.0–21.0 V across the usable range).
+Two packs combined through the LTC4412 ideal-diode ORing described above.
+
 | Output | Voltage | Load |
 |--------|---------|------|
-| CAN nodes | 12V switched | Front, Rear, eCVT nodes |
-| LoRa radio | 3.3V | From Nucleo onboard reg |
-| SD card | 3.3V | From Nucleo onboard reg |
+| CAN nodes | 12V switched | Front, Rear, Display nodes |
+| LoRa radio | 3.3V | Dedicated supply — see note |
+| SD card | 3.3V | Onboard regulator |
+
+The eCVT is **not** on this list. The ODrive S1 runs from its own
+stator-powered supply, separately rectified and filtered. A BLDC motor
+tolerates supply noise far better than these sensor nodes do, so its
+filtering can be simpler — but keep the two supplies distinct.
+
+**Give the E22 its own supply.** It draws over 600 mA in transmit bursts at
+22 dBm, more than an onboard regulator will provide. 470 µF or more at the
+module. Getting this wrong looks like a link that works on the bench and dies
+when you raise power or packet length.
+
+### V1 vs. final board
+
+The **V1 board is built for validation only**: single supply, no ORing
+circuit, and fewer on-board sensors than the final board. The voltage monitor
+— pack voltages, ORing behavior, and which pack is currently carrying the
+load — lands on a later revision, not V1.
 
 ## Firmware Structure
 

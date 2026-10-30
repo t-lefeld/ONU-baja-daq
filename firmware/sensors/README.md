@@ -14,17 +14,36 @@ for `TODO` in a file to get the full list for that sensor.
 
 | Sensor | Real part | Node (per `simulation/vehicle_data.py`) | Channels | Driver |
 |---|---|---|---|---|
-| GPS | u-blox NEO-M8N | Hub | gps_lat, gps_lon, gps_speed, gps_heading, gps_sats | `gps_neo_m8n.h/.c` |
-| IMU | BNO080 | Hub | accel_x, accel_y, accel_z, gyro_z | `imu_bno080.h/.c` |
-| Wheel encoder x4 | Littelfuse 55075 | Front (fl/fr), Rear (rl/rr) | wheel_speed_* | `wheel_encoder.h/.c` |
-| Suspension pot x4 | Bourns 53AAA-B28-B15L | Front (fl/fr), Rear (rl/rr) | suspension_* | `suspension_pot.h/.c` |
+| GPS | HGLRC Mini M100 | Hub (Firewall) | gps_lat, gps_lon, gps_speed, gps_heading, gps_sats | `gps_neo_m8n.h/.c` |
+| IMU | BNO080 | Hub (Firewall) | accel_x, accel_y, accel_z, gyro_z | `imu_bno080.h/.c` |
+| Gear tooth encoder x3 | Littelfuse 55505-00-02-A-ND | Front (fl, fr), Rear (brake disc) | wheel_speed_* | `wheel_encoder.h/.c` |
+| Suspension encoder x4 | AS5600, analog output | Front (fl/fr), Rear (rl/rr) | suspension_* | `suspension_pot.h/.c` |
 | Brake pressure | Anfield T200/T201 | Front | brake_pressure_f | `pressure_transducer.h/.c` |
-| CVT temp | Melexis MLX90614 | Rear | cvt_temp | `cvt_temp_mlx90614.h/.c` |
-| Motor telemetry | ODrive S1 (native CAN) | Motor/E-CVT | motor_current, motor_velocity, motor_temp, bus_voltage, brake_resistor_w | `odrive_can.h/.c` |
+| Temperature | Melexis MLX90614 | Rear | cvt_temp | `cvt_temp_mlx90614.h/.c` |
+| Motor telemetry | ODrive S1 (native CAN) | E-CVT | motor_current, motor_velocity, motor_temp, bus_voltage, brake_resistor_w | `odrive_can.h/.c` |
 
-`pressure_transducer.h/.c` also happens to be reusable as-is for a second
-pressure transducer on the rear if you add one later - same part family,
-same ADC-divider-calibrate pattern.
+**Driver filenames lag the parts.** `gps_neo_m8n.*` is named for a u-blox
+NEO-M8N and `suspension_pot.*` for a potentiometer; the car now uses an HGLRC
+Mini M100 and an AS5600. The files were not renamed, because in both cases
+the driver logic still applies:
+
+- The M100 is read-only NMEA over UART, same as the M8N. Check the module's
+  power-on baud rate against the `9600` the driver assumes.
+- The AS5600 runs in **analog output** mode (its I2C address is fixed at
+  `0x36`, so the two per node would collide), which means it is read through
+  the ADC exactly like the pot was — same divider, same two-point
+  calibration. See `suspension/travel-sensor/README.md`.
+
+Rename them when you next touch the code; don't let the filename convince you
+of the part.
+
+There are **three** gear tooth sensors, not four: one per front wheel, plus a
+single rear sensor that reads the **brake disc** rather than a wheel hub. Its
+pulses-per-revolution differs from the front pair — calibrate it separately.
+
+`pressure_transducer.h/.c` is also what the shock nitrogen pressure
+transducers use — same ADC-divider-calibrate pattern. Those are a **testing
+instrument only** and do not go on the car at a race.
 
 ## Confidence level per driver
 
@@ -33,7 +52,11 @@ scrutinize before wiring:
 
 - **wheel_encoder, suspension_pot, pressure_transducer**: straightforward
   GPIO/ADC reads, standard patterns, high confidence once pin/calibration
-  TODOs are filled in.
+  TODOs are filled in. For `suspension_pot` against an AS5600, confirm the
+  reading is monotonic across the full sweep before calibrating — a magnetic
+  encoder **wraps** past its single-turn range instead of clipping, so
+  over-travel reads as a jump to the opposite extreme rather than a stuck
+  value.
 - **cvt_temp_mlx90614**: well-defined SMBus protocol, high confidence.
 - **odrive_can**: the 3 core command IDs (`Get_Encoder_Estimates`, `Get_Iq`,
   `Get_Bus_Voltage_Current`) are from the ODrive CAN protocol reference and

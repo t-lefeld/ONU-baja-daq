@@ -31,12 +31,24 @@ LoRa USB receiver (E22-900T22U) — no intermediate MCU, WiFi AP, or PyQtGraph
 process. This replaced an earlier Flask/FastAPI + PyQtGraph design; see
 `docs/build-log/04_web_dashboard_pivot.md` for why.
 
-An optional FastAPI + SQLite backend runs alongside it for persistent,
-crash-safe, cross-session logging: the dashboard forwards every parsed
-telemetry packet to it via `POST /telemetry` in addition to its own in-browser
-CSV logging. This decouples storage from any one browser tab without requiring
-the backend for basic operation — see `telemetry/dashboard/README.md`.
+**The FastAPI + SQLite backend described here was dropped.** It lived in
+`telemetry/dashboard/`, which is no longer in the repo. Persistent logging is
+now `.TLM` + CSV written by `pc_app/`, plus the firewall's own SD card log.
+See the "Ground station" section of the root `README.md`.
 
 ## Power
 
-All nodes powered from a common 12V switched rail distributed from the firewall node. The firewall controls the power rail via a switched output — corner nodes are only live when the firewall is powered and the rail is enabled. This prevents nodes from draining the vehicle battery when the system is idle.
+The whole DAQ system runs on **DeWalt 20V MAX packs** (5S, 15.0–21.0 V), not
+the vehicle battery. Every pack lands on the firewall node, which carries the
+power distribution for the entire system and feeds the other nodes a switched
+12V rail. This is deliberate: noise filtering is done once, in one place,
+rather than repeated at every node. Corner nodes are only live when the
+firewall is powered and the rail is enabled.
+
+The final firewall board ORs two packs through an LTC4412 ideal-diode
+arrangement, with a voltage monitor for pack voltages and which pack is
+carrying the load. **The V1 board has neither** — single supply, validation
+only.
+
+The eCVT is **not** on this rail: the ODrive S1 runs from its own
+stator-powered supply, separately rectified and filtered.
